@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { Socket } from 'dgram';
 import axios from 'axios';
+import { Request } from 'express';
 
 export enum AuthStatus {
   Inexistant,
@@ -13,7 +14,7 @@ export enum AuthStatus {
 export class AppService {
   private clients: any = {};
 
-  receive_oauth_code(uid: number, code: string): boolean {
+  receiveOAuthCode(uid: number, code: string): boolean {
     console.log(`Received oauth code ${code} for user ${uid}`)
 
     this.clients[uid] = {};
@@ -25,10 +26,11 @@ export class AppService {
       client_id: "3cf0f70b74141822d0e52fc4858b288427ab9e62f4892d7390827f265748bdd7",
       client_secret: "adbf532fb52a4f8e86c872a0658f0665a19f0876097cab6733f0cb9fb5a6b2e1",
       code: code,
-      redirect_uri: "https://10.3.8.3:3000/login/oauth"
+      redirect_uri: `https://${this.getBackendHost()}:3000/login/oauth`
     }).then((response) => {
-      console.log("POSITIVE RESPONSE FOR  " + uid);
+      console.log("POSITIVE RESPONSE FOR " + uid);
       this.clients[uid].status = AuthStatus.Accepted;
+      this.clients[uid].api42Token = response.data.access_token;
     }).catch((reason) => {
       this.clients[uid].status = AuthStatus.Refused;
       console.log("Wtf: " + reason);
@@ -37,10 +39,35 @@ export class AppService {
     return true;
   }
 
-  receive_oauth_error(uid: number) {
-    console.log(`Could not authenticate user ${uid}`)
+  async retrieveUserData(uid: number) {
+    if (this.clients[uid].info42) {
+      return this.clients[uid].info42;
+    }
 
-    this.clients[uid].socket.emit("login_return", false);
+    try {
+      let response = await axios.get(`https://api.intra.42.fr/v2/me?access_token=${this.clients[uid].api42Token}`);
+      console.log(`retrieveUserData: got status ${response.status} from api.intra.42.fr`);
+
+      let data = response.data;
+
+      this.clients[uid].info42 = {
+        id: data.id,
+        login: data.login,
+        displayName: data.displayname,
+      };
+
+      console.log(`result: ${JSON.stringify(this.clients[uid].info42)}`);
+      return this.clients[uid].info42;
+    } catch (reason) {
+      console.error("retrieveUserData: Could not retrieve user info: " + reason);
+    }
+    return undefined;
+  }
+
+  receiveOAuthError(uid: number) {
+    console.log(`Could not authenticate user ${uid}`)
+    this.clients[uid].status = AuthStatus.Refused;
+    // this.clients[uid].socket.emit("login_return", false);
   }
 
   isAuth(uid: number): AuthStatus {
@@ -50,5 +77,18 @@ export class AppService {
 
     return this.clients[uid].status;
   }
-}
 
+  checkAuthedRequest(request: Request): boolean|string {
+    let uid = request.cookies['uid'];
+
+		if (!uid) {
+			return false;
+		}
+
+    return uid;
+  }
+
+  getBackendHost(): string {
+    return '10.3.8.3';
+  }
+}
