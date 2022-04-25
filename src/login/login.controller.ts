@@ -44,23 +44,36 @@ export class LoginController {
 			return {status: AuthStatus[AuthStatus.Inexistant]};
 		}
 
-		return {status: AuthStatus[this.appService.isAuth(uid)]};
-	}
+		let status = this.appService.isAuth(uid);
+		let data: any = { status: AuthStatus[status] };
 
-	@Post('get_data')
-	async getData(@Req() request: Request): Promise<any> {
-		let uid;
+		if (status === AuthStatus.Accepted) {
+			let info = await this.appService.retrieveUserData(uid);
 
-		if (!(uid = this.appService.checkAuthedRequest(request))) {
-			console.error("getData: NO COOKIE");
-			return "NOPE MDR";
+			data.login = info.login;
+			data.displayName = info.displayName;
+			data.imageUrl = info.imageUrl;
 		}
 
-		let info = await this.appService.retrieveUserData(uid);
 
-		return {
-			login: info.login,
-			displayName: info.displayName,
-		}
+		return data;
 	}
+
+	// @Post('get_data')
+	// async getData(@Req() request: Request): Promise<any> {
+	// 	let uid;
+
+	// 	if (!(uid = this.appService.checkAuthedRequest(request))) {
+	// 		console.error("getData: NO COOKIE");
+	// 		return "NOPE MDR";
+	// 	}
+
+	// 	let info = await this.appService.retrieveUserData(uid);
+
+	// 	return {
+	// 		login: info.login,
+	// 		displayName: info.displayName,
+	// 		imageUrl: info.imageUrl,
+	// 	}
+	// }
 }

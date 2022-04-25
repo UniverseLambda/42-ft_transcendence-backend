@@ -49,11 +49,13 @@ export class AppService {
       console.log(`retrieveUserData: got status ${response.status} from api.intra.42.fr`);
 
       let data = response.data;
+      // console.log(`response: ${JSON.stringify(data)}`);
 
       this.clients[uid].info42 = {
         id: data.id,
         login: data.login,
         displayName: data.displayname,
+        imageUrl: data.image_url,
       };
 
       console.log(`result: ${JSON.stringify(this.clients[uid].info42)}`);
@@ -65,9 +67,8 @@ export class AppService {
   }
 
   receiveOAuthError(uid: number) {
-    console.log(`Could not authenticate user ${uid}`)
+    console.log(`Could not authenticate user ${uid}`);
     this.clients[uid].status = AuthStatus.Refused;
-    // this.clients[uid].socket.emit("login_return", false);
   }
 
   isAuth(uid: number): AuthStatus {
