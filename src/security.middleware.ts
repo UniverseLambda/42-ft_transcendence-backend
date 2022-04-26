@@ -7,8 +7,8 @@ import { AppService } from './app.service';
 export class SecurityMiddleware implements NestMiddleware {
   public constructor(public appService: AppService) {}
 
-  use(req: Request, res: Response, next: () => void) {
-    if (!this.appService.checkAuthedRequest(req)) {
+  async use(req: Request, res: Response, next: () => void) {
+    if (!await this.appService.checkAuthedRequest(req)) {
       res.status(403).end();
       return;
     }

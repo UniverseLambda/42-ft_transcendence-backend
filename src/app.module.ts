@@ -13,7 +13,7 @@ import { SocketGateway } from './socket.gateway';
 export class AppModule implements NestModule {
   configure(consumer: MiddlewareConsumer) {
     consumer.apply(SecurityMiddleware)
-      .exclude("/login/redir_42api", "/login/is_auth")
+      .exclude("/login/redir_42api", "/login/is_auth", "/login/oauth")
       .forRoutes("*");
   }
 }
