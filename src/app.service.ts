@@ -18,8 +18,6 @@ export enum AuthStatus {
 export class AppService {
   private secret: Uint8Array = new Uint8Array(256);
 
-  // private clients: any = {};
-
   public constructor() {
     for (let i = 0; i < 256; ++i) {
       this.secret[i] = Math.floor(Math.random() * 255);
@@ -41,6 +39,10 @@ export class AppService {
     return await this.newToken({
       status: AuthStatus.Waiting
     });
+  }
+
+  async getSessionData(req: Request): Promise<any> {
+    return this.getTokenData(req.cookies[this.getSessionCookieName()]);
   }
 
   async getTokenData(token: string): Promise<any> {
@@ -92,9 +94,7 @@ export class AppService {
   async receiveOAuthError() {
     console.log(`Could not authenticate user`);
 
-    return {
-      status: AuthStatus[AuthStatus.Refused]
-    };
+    return await this.newToken({ status: AuthStatus[AuthStatus.Refused] });
   }
 
   async retrieveUserData(token: string) {
@@ -143,5 +143,9 @@ export class AppService {
 
   getSessionCookieOptions(): CookieOptions {
     return {sameSite: "none", secure: true};
+  }
+
+  getMaxUsernameLength(): number {
+    return 63;
   }
 }

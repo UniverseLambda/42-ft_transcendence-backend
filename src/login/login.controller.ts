@@ -9,7 +9,7 @@ export class LoginController {
 	@Get('redir_42api')
 	@Redirect()
 	async redirApi42(@Res({ passthrough: true }) response: Response): Promise<any> {
-		response.cookie(this.appService.getSessionCookieName(), this.appService.getInitialToken(), this.appService.getSessionCookieOptions());
+		response.cookie(this.appService.getSessionCookieName(), await this.appService.getInitialToken(), this.appService.getSessionCookieOptions());
 
 		return {
 			url: `https://api.intra.42.fr/oauth/authorize?client_id=3cf0f70b74141822d0e52fc4858b288427ab9e62f4892d7390827f265748bdd7&redirect_uri=https%3A%2F%2F${this.appService.getBackendHost()}%3A3000%2Flogin%2Foauth&response_type=code`

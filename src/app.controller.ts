@@ -6,7 +6,7 @@ export class AppController {
   constructor(private readonly appService: AppService) {}
 
   @Get()
-  getHello(): string {
-    return "HELLO WORLD";
+  rootMdr(): string {
+    return "OwO What awe you doing hewe, step bwoswew :3";
   }
 }
