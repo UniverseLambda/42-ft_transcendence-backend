@@ -2,7 +2,10 @@ import { Injectable } from '@nestjs/common';
 import { Socket } from 'dgram';
 import axios from 'axios';
 import { CookieOptions, Request } from 'express';
+import { generateKeySync, KeyObject } from "crypto";
 import * as jose from 'jose';
+import * as fs from 'fs';
+import * as path from 'path';
 
 const JWT_ALG: string = "HS512";
 const JWT_ISSUER: string = "ft_transcendance_BrindiSquad";
@@ -16,12 +19,10 @@ export enum AuthStatus {
 
 @Injectable()
 export class AppService {
-  private secret: Uint8Array = new Uint8Array(256);
+  private secret: KeyObject;
 
   public constructor() {
-    for (let i = 0; i < 256; ++i) {
-      this.secret[i] = Math.floor(Math.random() * 255);
-    }
+    this.secret = generateKeySync("hmac", { length: 512 });
   }
 
   async newToken(data: any): Promise<string> {
@@ -61,9 +62,7 @@ export class AppService {
   async receiveOAuthCode(code: string): Promise<string> {
     console.log(`Received oauth code ${code}`)
 
-    let data: any = {
-      status: AuthStatus.Refused
-    };
+    let data: any;
 
     try {
       let token_result = await axios.post("https://api.intra.42.fr/oauth/token", {
@@ -84,8 +83,29 @@ export class AppService {
         displayName: response.data.displayname,
         imageUrl: response.data.image_url,
       };
+
+      let imagePath = this.getAvatarPath(response.data.id);
+
+      if (!fs.existsSync(imagePath)) {
+        let fileStream = fs.createWriteStream(this.getAvatarPath(data.id));
+        let imageResponse = await axios.get(data.imageUrl, { responseType: 'stream' });
+        imageResponse.data.pipe(fileStream);
+
+        console.log(`retrieveUserData: avatar retrieving: got status ${imageResponse.status} from api.intra.42.fr`);
+
+
+        await new Promise((resolve, reject) => {
+          imageResponse.data.on("finish", resolve);
+          imageResponse.data.on("error", reject);
+        });
+      }
+
     } catch (reason) {
-        console.log("Wtf: " + reason);
+        console.log("Error while communicating with 42's intranet: " + reason);
+
+        data = {
+          status: AuthStatus.Refused
+        };
     }
 
     return await this.newToken(data);
@@ -94,7 +114,7 @@ export class AppService {
   async receiveOAuthError() {
     console.log(`Could not authenticate user`);
 
-    return await this.newToken({ status: AuthStatus[AuthStatus.Refused] });
+    return await this.newToken({ status: AuthStatus.Refused });
   }
 
   async retrieveUserData(token: string) {
@@ -127,7 +147,7 @@ export class AppService {
 
       return data.status === AuthStatus.Accepted;
     } catch (reason) {
-      console.log("checkAuthedRequest: Could not")
+      console.log(`checkAuthedRequest: Could not get token data: ${reason}`);
     }
 
     return false;
@@ -146,6 +166,11 @@ export class AppService {
   }
 
   getMaxUsernameLength(): number {
-    return 63;
+    return 64;
+  }
+
+  getAvatarPath(id: number): string {
+    // Yup. Becaue we don't want to put it in the dist directory (that's nasty - IMO)
+    return `${path.dirname(__dirname)}/user_data/avatar/${id}`;
   }
 }

@@ -42,7 +42,7 @@ export class LoginController {
 
 				data.login = info.login;
 				data.displayName = info.displayName;
-				data.imageUrl = info.imageUrl;
+				data.imageUrl = `https://${this.appService.getBackendHost()}:3000/profile/avatar/${info.id}`;
 			}
 
 
