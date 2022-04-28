@@ -1,11 +1,11 @@
-import { Injectable } from '@nestjs/common';
-import { Socket } from 'dgram';
-import axios from 'axios';
-import { CookieOptions, Request } from 'express';
+import { Injectable, Logger } from "@nestjs/common";
+import { Socket } from "dgram";
+import axios from "axios";
+import { CookieOptions, Request } from "express";
 import { generateKeySync, KeyObject } from "crypto";
-import * as jose from 'jose';
-import * as fs from 'fs';
-import * as path from 'path';
+import * as jose from "jose";
+import * as fs from "fs";
+import * as path from "path";
 
 const JWT_ALG: string = "HS512";
 const JWT_ISSUER: string = "ft_transcendance_BrindiSquad";
@@ -19,6 +19,7 @@ export enum AuthStatus {
 
 @Injectable()
 export class AppService {
+  private readonly logger: Logger = new Logger(AppService.name);
   private secret: KeyObject;
 
   public constructor() {
@@ -38,7 +39,7 @@ export class AppService {
 
   async getInitialToken(): Promise<string> {
     return await this.newToken({
-      status: AuthStatus.Waiting
+      authStatus: AuthStatus.Waiting
     });
   }
 
@@ -55,29 +56,30 @@ export class AppService {
 
       return payload;
     } catch (reason) {
-      console.log("retrieveUserData: Could not read token: " + reason);
+      this.logger.warn("retrieveUserData: Could not read token: " + reason);
     }
   }
 
   async receiveOAuthCode(code: string): Promise<string> {
-    console.log(`Received oauth code ${code}`)
+    this.logger.debug(`Received oauth code ${code}`)
 
     let data: any;
 
     try {
       let token_result = await axios.post("https://api.intra.42.fr/oauth/token", {
         grant_type: "authorization_code",
-        client_id: "3cf0f70b74141822d0e52fc4858b288427ab9e62f4892d7390827f265748bdd7",
-        client_secret: "adbf532fb52a4f8e86c872a0658f0665a19f0876097cab6733f0cb9fb5a6b2e1",
+        client_id: this.getAPIClientId(),
+        client_secret: this.getAPISecret(),
         code: code,
         redirect_uri: `https://${this.getBackendHost()}:3000/login/oauth`
       });
 
       let response = await axios.get(`https://api.intra.42.fr/v2/me?access_token=${token_result.data.access_token}`);
-      console.log(`retrieveUserData: got status ${response.status} from api.intra.42.fr`);
+      this.logger.verbose(`retrieveUserData: got status ${response.status} from api.intra.42.fr`);
 
       data = {
-        status: AuthStatus.Accepted,
+        authStatus: AuthStatus.Accepted,
+        userStatus: "Online",
         id: response.data.id,
         login: response.data.login,
         displayName: response.data.displayname,
@@ -87,11 +89,13 @@ export class AppService {
       let imagePath = this.getAvatarPath(response.data.id);
 
       if (!fs.existsSync(imagePath)) {
+        this.logger.log(`retrieveUserData: no avatar found for user ${data.id}. Retrieving it from ${data.imageUrl}`);
+
         let fileStream = fs.createWriteStream(this.getAvatarPath(data.id));
-        let imageResponse = await axios.get(data.imageUrl, { responseType: 'stream' });
+        let imageResponse = await axios.get(data.imageUrl, { responseType: "stream" });
         imageResponse.data.pipe(fileStream);
 
-        console.log(`retrieveUserData: avatar retrieving: got status ${imageResponse.status} from api.intra.42.fr`);
+        this.logger.verbose(`retrieveUserData: avatar retrieving: got status ${imageResponse.status} from api.intra.42.fr`);
 
 
         await new Promise((resolve, reject) => {
@@ -101,10 +105,10 @@ export class AppService {
       }
 
     } catch (reason) {
-        console.log("Error while communicating with 42's intranet: " + reason);
+        this.logger.error("Error while communicating with 42's intranet: " + reason);
 
         data = {
-          status: AuthStatus.Refused
+          authStatus: AuthStatus.Refused
         };
     }
 
@@ -112,9 +116,9 @@ export class AppService {
   }
 
   async receiveOAuthError() {
-    console.log(`Could not authenticate user`);
+    this.logger.log(`Could not authenticate user`);
 
-    return await this.newToken({ status: AuthStatus.Refused });
+    return await this.newToken({ authStatus: AuthStatus.Refused });
   }
 
   async retrieveUserData(token: string) {
@@ -128,11 +132,11 @@ export class AppService {
 
     let data = await this.getTokenData(token);
 
-    if (!data || !data.status || typeof data.status !== "number") {
+    if (!data || !data.authStatus || typeof data.authStatus !== "number") {
       return AuthStatus.Inexistant;
     }
 
-    return data.status;
+    return data.authStatus;
   }
 
   async checkAuthedRequest(request: Request): Promise<boolean> {
@@ -145,16 +149,24 @@ export class AppService {
     try {
       let data = await this.getTokenData(cookie);
 
-      return data.status === AuthStatus.Accepted;
+      return data.authStatus && data.authStatus === AuthStatus.Accepted;
     } catch (reason) {
-      console.log(`checkAuthedRequest: Could not get token data: ${reason}`);
+      this.logger.error(`checkAuthedRequest: Could not get token data: ${reason}`);
     }
 
     return false;
   }
 
   getBackendHost(): string {
-    return '10.3.7.3';
+    return "10.3.7.3";
+  }
+
+  getAPIClientId(): string {
+    return "3cf0f70b74141822d0e52fc4858b288427ab9e62f4892d7390827f265748bdd7";
+  }
+
+  getAPISecret(): string {
+    return "adbf532fb52a4f8e86c872a0658f0665a19f0876097cab6733f0cb9fb5a6b2e1";
   }
 
   getSessionCookieName(): string {
@@ -169,8 +181,14 @@ export class AppService {
     return 64;
   }
 
-  getAvatarPath(id: number): string {
-    // Yup. Becaue we don't want to put it in the dist directory (that's nasty - IMO)
-    return `${path.dirname(__dirname)}/user_data/avatar/${id}`;
+  getAvatarPath(id?: number): string {
+    // Yup. Because we don't want to put it in the dist directory (that's nasty - IMO)
+    let result = `${path.dirname(__dirname)}/user_data/avatar/`;
+
+    if (id !== undefined) {
+      result = `${result}/${id}`
+    }
+
+    return result;
   }
 }
