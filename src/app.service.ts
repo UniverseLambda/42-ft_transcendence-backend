@@ -1,20 +1,56 @@
 import { Injectable, Logger } from "@nestjs/common";
-import { Socket } from "dgram";
 import axios from "axios";
 import { CookieOptions, Request } from "express";
 import { generateKeySync, KeyObject } from "crypto";
 import * as jose from "jose";
 import * as fs from "fs";
 import * as path from "path";
+import * as OAuth from "otpauth";
 
 const JWT_ALG: string = "HS512";
 const JWT_ISSUER: string = "ft_transcendance_BrindiSquad";
+
+const TOTP_MAX_DELTA = 1;
 
 export enum AuthStatus {
   Inexistant,
   Waiting,
   Refused,
+  WaitingFor2FA,
   Accepted
+}
+
+export enum UserStatus {
+  Unregistered,
+  Invisible,
+  Online,
+  InGame
+}
+
+export class AuthState {
+  constructor(public authStatus: AuthStatus, public id?: number) {}
+}
+
+export class ClientState {
+  public totpSecret?: OAuth.TOTP = undefined;
+  public totpInPreparation: boolean = false;
+
+  constructor(
+    private id: number,
+    public lastSeen: number,
+    public userStatus: UserStatus,
+    public login: string,
+    public displayName: string,
+    private defaultAvatarUrl: string
+  ) {}
+
+  public getId(): number {
+    return this.id;
+  }
+
+  public getDefaultAvatarUrl(): string {
+    return this.defaultAvatarUrl;
+  }
 }
 
 @Injectable()
@@ -22,12 +58,17 @@ export class AppService {
   private readonly logger: Logger = new Logger(AppService.name);
   private secret: KeyObject;
 
+  private userMap = new Map<number, ClientState>();
+
   public constructor() {
     this.secret = generateKeySync("hmac", { length: 512 });
   }
 
-  async newToken(data: any): Promise<string> {
-    let token = await new jose.SignJWT(data)
+  async newToken(data: AuthState): Promise<string> {
+    let token = await new jose.SignJWT({
+      authStatus: data.authStatus,
+      id: data.id
+    })
       .setProtectedHeader({alg: JWT_ALG})
       .setIssuedAt()
       .setIssuer(JWT_ISSUER)
@@ -43,18 +84,24 @@ export class AppService {
     });
   }
 
-  async getSessionData(req: Request): Promise<any> {
-    return this.getTokenData(req.cookies[this.getSessionCookieName()]);
+  async getSessionDataToken(token: string): Promise<ClientState> {
+    let tokenData: AuthState = await this.getTokenData(token);
+
+    return this.userMap.get(tokenData.id);
   }
 
-  async getTokenData(token: string): Promise<any> {
+  async getSessionData(req: Request): Promise<ClientState> {
+    return this.getSessionDataToken(req.cookies[this.getSessionCookieName()]);
+  }
+
+  async getTokenData(token: string): Promise<AuthState> {
     try {
       const { payload, protectedHeader } = await jose.jwtVerify(token, this.secret, {
         algorithms: [ JWT_ALG ],
         issuer: JWT_ISSUER,
       });
 
-      return payload;
+      return new AuthState(payload.authStatus as AuthStatus, payload.id as number);
     } catch (reason) {
       this.logger.warn("retrieveUserData: Could not read token: " + reason);
     }
@@ -63,7 +110,7 @@ export class AppService {
   async receiveOAuthCode(code: string): Promise<string> {
     this.logger.debug(`Received oauth code ${code}`)
 
-    let data: any;
+    let cookie: AuthState;
 
     try {
       let token_result = await axios.post("https://api.intra.42.fr/oauth/token", {
@@ -77,52 +124,41 @@ export class AppService {
       let response = await axios.get(`https://api.intra.42.fr/v2/me?access_token=${token_result.data.access_token}`);
       this.logger.verbose(`retrieveUserData: got status ${response.status} from api.intra.42.fr`);
 
-      data = {
-        authStatus: AuthStatus.Accepted,
-        userStatus: "Online",
-        id: response.data.id,
-        login: response.data.login,
-        displayName: response.data.displayname,
-        imageUrl: response.data.image_url,
-      };
 
-      let imagePath = this.getAvatarPath(response.data.id);
+      if (!this.userMap.has(response.data.id)) {
+        let data: ClientState = new ClientState(
+          response.data.id,
+          Date.now(),
+          UserStatus.Online,
+          response.data.login,
+          response.data.displayname,
+          response.data.image_url
+        );
 
-      if (!fs.existsSync(imagePath)) {
-        this.logger.log(`retrieveUserData: no avatar found for user ${data.id}. Retrieving it from ${data.imageUrl}`);
+        this.userMap.set(data.getId(), data);
+      }
 
-        let fileStream = fs.createWriteStream(this.getAvatarPath(data.id));
-        let imageResponse = await axios.get(data.imageUrl, { responseType: "stream" });
-        imageResponse.data.pipe(fileStream);
+      let userData = this.userMap.get(response.data.id);
 
-        this.logger.verbose(`retrieveUserData: avatar retrieving: got status ${imageResponse.status} from api.intra.42.fr`);
-
-
-        await new Promise((resolve, reject) => {
-          imageResponse.data.on("finish", resolve);
-          imageResponse.data.on("error", reject);
-        });
+      if (userData.totpSecret && !userData.totpInPreparation) {
+        cookie = new AuthState(AuthStatus.WaitingFor2FA, response.data.id);
+      } else {
+        cookie = new AuthState(AuthStatus.Accepted, response.data.id);
       }
 
     } catch (reason) {
         this.logger.error("Error while communicating with 42's intranet: " + reason);
 
-        data = {
-          authStatus: AuthStatus.Refused
-        };
+        cookie = new AuthState(AuthStatus.Refused);
     }
 
-    return await this.newToken(data);
+    return await this.newToken(cookie);
   }
 
   async receiveOAuthError() {
     this.logger.log(`Could not authenticate user`);
 
     return await this.newToken({ authStatus: AuthStatus.Refused });
-  }
-
-  async retrieveUserData(token: string) {
-    return this.getTokenData(token);
   }
 
   async isAuth(token?: string): Promise<AuthStatus> {
@@ -149,7 +185,7 @@ export class AppService {
     try {
       let data = await this.getTokenData(cookie);
 
-      return data.authStatus && data.authStatus === AuthStatus.Accepted;
+      return data && data.authStatus && data.authStatus === AuthStatus.Accepted;
     } catch (reason) {
       this.logger.error(`checkAuthedRequest: Could not get token data: ${reason}`);
     }
@@ -177,8 +213,38 @@ export class AppService {
     return {sameSite: "none", secure: true};
   }
 
-  getMaxUsernameLength(): number {
+  getMaxLoginLength(): number {
     return 64;
+  }
+
+  async downloadAvatarIfMissing(id: number): Promise<boolean> {
+    if (!fs.existsSync(this.getAvatarPath(id))) {
+      try {
+        await this.downloadDefaultAvatar(id);
+      } catch (reason) {
+        this.logger.error("Could not retrieve avatar from 42's intranet");
+        return false;
+      }
+    }
+    return true;
+  }
+
+  async downloadDefaultAvatar(id: number) {
+    let imagePath = this.getAvatarPath(id);
+    let sess = this.userMap.get(id);
+
+    this.logger.log(`retrieveUserData: no avatar found for user ${id}. Retrieving it from ${sess.getDefaultAvatarUrl()}`);
+
+    let fileStream = fs.createWriteStream(imagePath);
+    let imageResponse = await axios.get(sess.getDefaultAvatarUrl(), { responseType: "stream" });
+    imageResponse.data.pipe(fileStream);
+
+    this.logger.verbose(`retrieveUserData: avatar retrieving: got status ${imageResponse.status} from api.intra.42.fr`);
+
+    await new Promise((resolve, reject) => {
+      fileStream.on("finish", resolve);
+      fileStream.on("error", reject);
+    });
   }
 
   getAvatarPath(id?: number): string {
@@ -190,5 +256,67 @@ export class AppService {
     }
 
     return result;
+  }
+
+  async prepare2FA(sess: ClientState): Promise<string> {
+    if (sess.totpInPreparation && sess.totpSecret) {
+      return sess.totpSecret.toString();
+    }
+
+    if (sess.totpSecret) {
+      throw `prepare2FA: TOTP already activated for user ${sess.getId()} (${sess.login})`;
+    }
+
+    sess.totpSecret = new OAuth.TOTP({
+      label: "BrindiSquad 2FA",
+      issuer: "BrindiSquad",
+      algorithm: "SHA512",
+      digits: 6,
+      period: 30,
+      secret: new OAuth.Secret(generateKeySync("hmac", {length: 512}).export())
+    })
+
+    sess.totpInPreparation = true;
+
+    this.logger.debug(`SECRET: ${sess.totpSecret.toString()}`);
+    return sess.totpSecret.toString();
+  }
+
+  async validate2FA(sess: ClientState, token: string): Promise<boolean> {
+    if (!sess.totpInPreparation) {
+      throw `validate2FA: TOTP not in preparation for user ${sess.getId()} (${sess.login})`;
+    }
+
+    if (!sess.totpSecret) {
+      throw `validate2FA: no TOTP secret generated while being in preparation for user ${sess.getId()} (${sess.login})`;
+    }
+
+    let valid = this.check2FA(sess, token);
+
+    if (valid) {
+      // TODO: Store TOTP secret in database
+      sess.totpInPreparation = false;
+      return true;
+    }
+
+    return false;
+  }
+
+  async login2FA(sess: ClientState, token: string): Promise<boolean> {
+    if (!sess.totpInPreparation) {
+      throw `login2FA: TOTP in preparation for user ${sess.getId()} (${sess.login})`;
+    }
+
+    if (sess.totpSecret) {
+      throw `login2FA: no TOTP secret generated while being activated for user ${sess.getId()} (${sess.login})`;
+    }
+
+    return this.check2FA(sess, token);
+  }
+
+  async check2FA(sess: ClientState, token: string): Promise<boolean> {
+    let result: number = sess.totpSecret.validate({token: token});
+
+    return result != null && result <= TOTP_MAX_DELTA;
   }
 }

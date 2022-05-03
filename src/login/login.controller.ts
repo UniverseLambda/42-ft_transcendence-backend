@@ -1,5 +1,5 @@
-import { Controller, Get, Logger, Post, Query, Req, Res } from '@nestjs/common';
-import { AppService, AuthStatus } from '../app.service';
+import { Body, Controller, Get, Logger, Post, Query, Req, Res } from '@nestjs/common';
+import { AppService, AuthState, AuthStatus, ClientState } from '../app.service';
 import { Request, Response } from 'express';
 
 @Controller('login')
@@ -10,7 +10,12 @@ export class LoginController {
 
 	@Get('redir_42api')
 	async redirApi42(@Req() request: Request, @Res() response: Response): Promise<any> {
-		let sess = await this.appService.getSessionData(request);
+		let cookie = request.cookies[this.appService.getSessionCookieName()];
+		let sess = undefined;
+
+		if (cookie) {
+			sess = await this.appService.getTokenData(cookie);
+		}
 
 		// TODO: Session duplication
 		if (sess && sess.authStatus && sess.authStatus === AuthStatus.Accepted) {
@@ -44,12 +49,13 @@ export class LoginController {
 			let data: any = { authStatus: AuthStatus[authStatus] };
 
 			if (authStatus === AuthStatus.Accepted) {
-				let info = await this.appService.retrieveUserData(token);
+				let info: ClientState = await this.appService.getSessionDataToken(token);
 
 				data.login = info.login;
 				data.displayName = info.displayName;
-				data.imageUrl = `https://${this.appService.getBackendHost()}:3000/profile/avatar/${info.id}`;
+				data.imageUrl = `https://${this.appService.getBackendHost()}:3000/profile/avatar/${info.getId()}`;
 				data.userStatus = info.userStatus;
+				data.requires2FA = info.totpSecret !== undefined;
 			}
 
 			return data;
@@ -57,6 +63,49 @@ export class LoginController {
 			this.logger.error(`isAuth: exception thrown (reason: ${reason}), returning AuthStatus 'Inexistant'`);
 			return {
 				authStatus: AuthStatus[AuthStatus.Inexistant]
+			}
+		}
+	}
+
+	@Post("2fa_login")
+	async validate2FALogin(@Req() request: Request, @Res({passthrough: true}) response: Response, @Body("token") token?: string): Promise<any> {
+		try {
+			let cookie = request.cookies[this.appService.getSessionCookieName()];
+			let auth: AuthState = await this.appService.getTokenData(cookie);
+
+			if (auth.authStatus === AuthStatus.Accepted) {
+				this.logger.warn(`validate2FALogin: user ${auth.id} already in AuthStatus Accepted. Returning Okay`);
+				return {
+					code: true
+				};
+			} else if (auth.authStatus !== AuthStatus.WaitingFor2FA) {
+				this.logger.error(`validate2FALogin: trying to validate 2FA for user ${auth.id} while not being in WaitingFor2FA AuthStatus.`);
+				return {
+					code: false
+				}
+			}
+
+			if (token === undefined || token === null) {
+				this.logger.error(`validate2FALogin: no token in 2FA validation body for user ${auth.id}.`);
+				return {
+					code: false
+				}
+			}
+
+			let result = await this.appService.login2FA(await this.appService.getSessionData(request), token);
+
+			if (result) {
+				auth.authStatus = AuthStatus.Accepted;
+				response.cookie(this.appService.getSessionCookieName(), this.appService.newToken(auth), this.appService.getSessionCookieOptions());
+			}
+
+			return {
+				code: result
+			}
+		} catch (reason) {
+			this.logger.error(`validate2FALogin: exception thrown (reason: ${reason})`);
+			return {
+				code: false
 			}
 		}
 	}

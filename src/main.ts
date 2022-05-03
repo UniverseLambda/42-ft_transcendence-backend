@@ -1,7 +1,6 @@
 import { NestFactory } from '@nestjs/core';
 import { AppModule } from './app.module';
 import * as cookieParser from 'cookie-parser';
-import * as cors from 'cors';
 import * as fs from 'fs';
 import { NestExpressApplication } from '@nestjs/platform-express';
 

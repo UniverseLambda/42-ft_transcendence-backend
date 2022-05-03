@@ -5,6 +5,7 @@ import { LoginController } from './login/login.controller';
 import { SecurityMiddleware } from './security.middleware';
 import { SocketGateway } from './socket.gateway';
 import { ProfileController } from './profile/profile.controller';
+import { CacheMiddleware } from './cache.middleware';
 
 @Module({
   imports: [],
@@ -13,6 +14,7 @@ import { ProfileController } from './profile/profile.controller';
 })
 export class AppModule implements NestModule {
   configure(consumer: MiddlewareConsumer) {
+    consumer.apply(CacheMiddleware).forRoutes("*");
     consumer.apply(SecurityMiddleware)
       .exclude("/login/redir_42api", "/login/is_auth", "/login/oauth")
       .forRoutes("*");
