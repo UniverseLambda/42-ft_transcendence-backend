@@ -225,4 +225,12 @@ export class ProfileController {
 			}
 		}
 	}
+
+	@Post("deactivate_2fa")
+	async deactivate2FA(@Req() req: Request) {
+		let sess = await this.appService.getSessionData(req);
+
+		this.appService.deactivate2FA(sess);
+		return {};
+	}
 }

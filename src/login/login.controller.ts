@@ -1,6 +1,7 @@
 import { Body, Controller, Get, Logger, Post, Query, Req, Res } from '@nestjs/common';
 import { AppService, AuthState, AuthStatus, ClientState } from '../app.service';
 import { Request, Response } from 'express';
+import * as util from "../util";
 
 @Controller('login')
 export class LoginController {
@@ -24,7 +25,9 @@ export class LoginController {
 		}
 
 		response.cookie(this.appService.getSessionCookieName(), await this.appService.getInitialToken(), this.appService.getSessionCookieOptions());
-		response.redirect(`https://api.intra.42.fr/oauth/authorize?client_id=${this.appService.getAPIClientId()}&redirect_uri=https%3A%2F%2F${this.appService.getBackendHost()}%3A3000%2Flogin%2Foauth&response_type=code`);
+		let redirUriPrefix = encodeURIComponent(`${util.getBackendHost()}${util.getBackendPrefix()}`);
+
+		response.redirect(`https://api.intra.42.fr/oauth/authorize?client_id=${this.appService.getAPIClientId()}&redirect_uri=https%3A%2F%2F${redirUriPrefix}%2Flogin%2Foauth&response_type=code`);
 	}
 
 	@Get('oauth')
@@ -53,7 +56,7 @@ export class LoginController {
 
 				data.login = info.login;
 				data.displayName = info.displayName;
-				data.imageUrl = `https://${this.appService.getBackendHost()}:3000/profile/avatar/${info.getId()}`;
+				data.imageUrl = this.appService.getAvatarUrl(info);
 				data.userStatus = info.userStatus;
 				data.requires2FA = info.totpSecret !== undefined;
 			}
@@ -96,7 +99,7 @@ export class LoginController {
 
 			if (result) {
 				auth.authStatus = AuthStatus.Accepted;
-				response.cookie(this.appService.getSessionCookieName(), this.appService.newToken(auth), this.appService.getSessionCookieOptions());
+				response.cookie(this.appService.getSessionCookieName(), await this.appService.newToken(auth), this.appService.getSessionCookieOptions());
 			}
 
 			return {

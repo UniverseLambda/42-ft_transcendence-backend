@@ -16,7 +16,7 @@ export class AppModule implements NestModule {
   configure(consumer: MiddlewareConsumer) {
     consumer.apply(CacheMiddleware).forRoutes("*");
     consumer.apply(SecurityMiddleware)
-      .exclude("/login/redir_42api", "/login/is_auth", "/login/oauth")
+      .exclude("/login/redir_42api", "/login/is_auth", "/login/oauth", "/login/2fa_login")
       .forRoutes("*");
   }
 }

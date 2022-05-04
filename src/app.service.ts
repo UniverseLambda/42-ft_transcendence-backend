@@ -7,6 +7,8 @@ import * as fs from "fs";
 import * as path from "path";
 import * as OAuth from "otpauth";
 
+import * as util from "./util";
+
 const JWT_ALG: string = "HS512";
 const JWT_ISSUER: string = "ft_transcendance_BrindiSquad";
 
@@ -118,7 +120,7 @@ export class AppService {
         client_id: this.getAPIClientId(),
         client_secret: this.getAPISecret(),
         code: code,
-        redirect_uri: `https://${this.getBackendHost()}:3000/login/oauth`
+        redirect_uri: `https://${util.getBackendHost()}${util.getBackendPrefix()}/login/oauth`
       });
 
       let response = await axios.get(`https://api.intra.42.fr/v2/me?access_token=${token_result.data.access_token}`);
@@ -193,10 +195,6 @@ export class AppService {
     return false;
   }
 
-  getBackendHost(): string {
-    return "10.3.7.3";
-  }
-
   getAPIClientId(): string {
     return "3cf0f70b74141822d0e52fc4858b288427ab9e62f4892d7390827f265748bdd7";
   }
@@ -215,6 +213,10 @@ export class AppService {
 
   getMaxLoginLength(): number {
     return 64;
+  }
+
+  getAvatarUrl(user: ClientState): string {
+    return `https://${util.getBackendHost()}${util.getBackendPrefix()}/profile/avatar/${user.getId()}`;
   }
 
   async downloadAvatarIfMissing(id: number): Promise<boolean> {
@@ -303,11 +305,11 @@ export class AppService {
   }
 
   async login2FA(sess: ClientState, token: string): Promise<boolean> {
-    if (!sess.totpInPreparation) {
+    if (sess.totpInPreparation) {
       throw `login2FA: TOTP in preparation for user ${sess.getId()} (${sess.login})`;
     }
 
-    if (sess.totpSecret) {
+    if (!sess.totpSecret) {
       throw `login2FA: no TOTP secret generated while being activated for user ${sess.getId()} (${sess.login})`;
     }
 
@@ -317,6 +319,15 @@ export class AppService {
   async check2FA(sess: ClientState, token: string): Promise<boolean> {
     let result: number = sess.totpSecret.validate({token: token});
 
+    this.logger.debug(`check2FA: TOKEN: ${token}, DELTA: ${result}`);
+
     return result != null && result <= TOTP_MAX_DELTA;
+  }
+
+  deactivate2FA(sess: ClientState) {
+    this.logger.debug(`deactivate2FA: 2FA for ${sess.getId()}`);
+
+    sess.totpSecret = undefined;
+    sess.totpInPreparation = false;
   }
 }
