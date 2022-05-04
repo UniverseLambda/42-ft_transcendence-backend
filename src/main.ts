@@ -23,7 +23,7 @@ async function bootstrap() {
     });
   }
 
-  await app.use(cookieParser()).listen(3000);
+  await app.use(cookieParser()).listen(util.getBackendPort());
 }
 
 if (util.isLocal()) {

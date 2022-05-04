@@ -3,6 +3,8 @@ import * as process from "process";
 let port: number = undefined;
 
 export function isLocal(): boolean {
+  // Could not just return process.env.TRANSCENDENCE_LOCAL, because it won't check for truthyValue, only boolean
+
   if (process.env.TRANSCENDENCE_LOCAL) {
     return true;
   }
