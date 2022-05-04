@@ -291,7 +291,7 @@ export class AppService {
       throw `validate2FA: no TOTP secret generated while being in preparation for user ${sess.getId()} (${sess.login})`;
     }
 
-    let valid = this.check2FA(sess, token);
+    let valid: boolean = await this.check2FA(sess, token);
 
     if (valid) {
       // TODO: Store TOTP secret in database
