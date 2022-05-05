@@ -5,14 +5,21 @@ import * as fs from 'fs';
 import { NestExpressApplication } from '@nestjs/platform-express';
 
 import * as util from "./util";
+import { NestApplicationOptions } from '@nestjs/common';
 
 async function bootstrap() {
-  const httpsOptions = {
-    key: fs.readFileSync('./secrets/server.key'),
-    cert: fs.readFileSync('./secrets/server.crt')
+  let nestOptions: NestApplicationOptions = undefined;
+
+  if (util.isLocal()) {
+    const httpsOptions = {
+      key: fs.readFileSync('./secrets/server.key'),
+      cert: fs.readFileSync('./secrets/server.crt')
+    };
+
+    nestOptions = {httpsOptions};
   }
 
-  const app = await NestFactory.create<NestExpressApplication>(AppModule, {httpsOptions});
+  const app = await NestFactory.create<NestExpressApplication>(AppModule, nestOptions);
 
   if (util.isLocal()) {
     app.enableCors({
