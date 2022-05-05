@@ -219,6 +219,10 @@ export class AppService {
     return `https://${util.getBackendHost()}${util.getBackendPrefix()}/profile/avatar/${user.getId()}`;
   }
 
+  getClientState(id: number): ClientState {
+    return this.userMap.get(id);
+  }
+
   async downloadAvatarIfMissing(id: number): Promise<boolean> {
     if (!fs.existsSync(this.getAvatarPath(id))) {
       try {

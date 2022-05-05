@@ -11,7 +11,7 @@ export class SecurityMiddleware implements NestMiddleware {
 
   async use(req: Request, res: Response, next: () => void) {
     if (!await this.appService.checkAuthedRequest(req)) {
-      this.logger.warn(`unauthorized access to ${req.url} from ${req.ip}`);
+      this.logger.warn(`unauthorized access to ${req.baseUrl} from ${req.ip}`);
       res.status(403).end();
       return;
     }

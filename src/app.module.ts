@@ -3,14 +3,15 @@ import { AppController } from './app.controller';
 import { AppService } from './app.service';
 import { LoginController } from './login/login.controller';
 import { SecurityMiddleware } from './security.middleware';
-import { SocketGateway } from './socket.gateway';
 import { ProfileController } from './profile/profile.controller';
 import { CacheMiddleware } from './cache.middleware';
+import { ChatService } from './chat/chat.service';
+import { ChatGateway } from './chat/chat.gateway';
 
 @Module({
   imports: [],
   controllers: [AppController, LoginController, ProfileController],
-  providers: [AppService, SocketGateway],
+  providers: [AppService, ChatService, ChatGateway],
 })
 export class AppModule implements NestModule {
   configure(consumer: MiddlewareConsumer) {
