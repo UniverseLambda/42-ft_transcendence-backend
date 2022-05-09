@@ -22,7 +22,7 @@ export function getBackendPrefix(): string {
   if (process.env.TRANSCENDENCE_LOCAL) {
     return ":3000";
   } else {
-    return "/api";
+    return "/back";
   }
 }
 
