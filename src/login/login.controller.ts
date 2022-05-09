@@ -25,9 +25,11 @@ export class LoginController {
 		}
 
 		response.cookie(this.appService.getSessionCookieName(), await this.appService.getInitialToken(), this.appService.getSessionCookieOptions());
-		let redirUriPrefix = encodeURIComponent(`${util.getBackendHost()}${util.getBackendPrefix()}`);
+		let redirUriPrefix = encodeURIComponent(`https://${util.getBackendHost()}${util.getBackendPrefix()}/login/oauth`);
 
-		response.redirect(`https://api.intra.42.fr/oauth/authorize?client_id=${this.appService.getAPIClientId()}&redirect_uri=https%3A%2F%2F${redirUriPrefix}%2Flogin%2Foauth&response_type=code`);
+		this.logger.debug(`Redir URL prefix: ${decodeURIComponent(redirUriPrefix)}`);
+
+		response.redirect(`https://api.intra.42.fr/oauth/authorize?client_id=${this.appService.getAPIClientId()}&redirect_uri=${redirUriPrefix}&response_type=code`);
 	}
 
 	@Get('oauth')
