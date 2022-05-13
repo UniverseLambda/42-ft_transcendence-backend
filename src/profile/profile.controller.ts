@@ -82,7 +82,15 @@ export class ProfileController {
 		let newPath = this.appService.getAvatarPath(id);
 		try {
 			this.logger.debug(`Copying from ${previousPath} to ${newPath}...`);
-			fs.copyFileSync(previousPath, newPath);
+
+			this.appService.ensureFileOps(newPath);
+
+			try {
+				fs.renameSync(previousPath, newPath);
+			} catch (reason) {
+				this.logger.error(`setAvatar: renamemSync failed (${reason}). Using copyFileSync instead...`)
+				fs.copyFileSync(previousPath, newPath);
+			}
 
 			new Promise((resolve, error) => {
 				try {

@@ -241,6 +241,8 @@ export class AppService {
 
     this.logger.log(`retrieveUserData: no avatar found for user ${id}. Retrieving it from ${sess.getDefaultAvatarUrl()}`);
 
+    this.ensureFileOps(imagePath);
+
     let fileStream = fs.createWriteStream(imagePath);
     let imageResponse = await axios.get(sess.getDefaultAvatarUrl(), { responseType: "stream" });
     imageResponse.data.pipe(fileStream);
@@ -333,5 +335,10 @@ export class AppService {
 
     sess.totpSecret = undefined;
     sess.totpInPreparation = false;
+  }
+
+  ensureFileOps(p: string): boolean {
+    fs.mkdirSync(path.dirname(p), {recursive: true});
+    return true;
   }
 }

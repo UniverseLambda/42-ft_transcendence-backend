@@ -19,7 +19,7 @@ export function getBackendHost(): string {
 }
 
 export function getBackendPrefix(): string {
-  if (process.env.TRANSCENDENCE_LOCAL) {
+  if (isLocal()) {
     return ":3000";
   } else {
     return "/back";
