@@ -7,11 +7,14 @@ import { ProfileController } from './profile/profile.controller';
 import { CacheMiddleware } from './cache.middleware';
 import { ChatService } from './chat/chat.service';
 import { ChatGateway } from './chat/chat.gateway';
+import { GameService } from './game/game.service';
+import { GameController } from './game/game.controller';
+import { GameGateway } from './game/game.gateway';
 
 @Module({
   imports: [],
-  controllers: [AppController, LoginController, ProfileController],
-  providers: [AppService, ChatService, ChatGateway],
+  controllers: [AppController, LoginController, ProfileController, GameController],
+  providers: [AppService, ChatService, ChatGateway, GameService, GameGateway],
 })
 export class AppModule implements NestModule {
   configure(consumer: MiddlewareConsumer) {

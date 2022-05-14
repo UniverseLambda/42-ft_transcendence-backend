@@ -1,0 +1,11 @@
+
+Server side :
+	emit/GET (response a une request Get)
+		Ball : { x : number, y : number, z : number }
+		Score : { P1 : number, P2 : number }
+		PaddlePos : { x : number, y : number, z : number }
+		PowerUp : string[]
+
+Client side :
+	POST
+		PaddlePos : { x : number, y : number, z : number }

@@ -7,6 +7,7 @@ export class AppController {
 
   @Get()
   rootMdr(): string {
+	  // wtf clem's
     return "OwO What awe you doing hewe, step bwoswew :3";
   }
 }
