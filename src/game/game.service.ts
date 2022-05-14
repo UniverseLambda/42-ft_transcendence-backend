@@ -3,6 +3,10 @@ import { Socket } from 'socket.io'
 import { AppService, ClientState } from 'src/app.service';
 import { parse } from "cookie";
 
+// import { Vector3 } from 'three';
+
+import * as THREE from 'three';
+
 export class Position { constructor(public posx : number, public posy : number, public posz : number) {}; }
 export class Players { constructor(public p1 : string, public p2 : string) {} }
 export class Scores { constructor(public p1 : number, public p2 : number) {} }
@@ -76,22 +80,30 @@ export class GameService {
 	private gameList : Map<string, GameInfo> = new Map();
 	private readonly logger : Logger = new Logger(GameService.name);
 
+	public newsocket : Socket;
+
 	async registerClient(appService : AppService, socket : Socket) {
-		try {
-			var cookie : string = parse(socket.handshake.headers.cookie)[appService.getSessionCookieName()];
-			var state = await appService.getSessionDataToken(cookie);
-			var playerInfo = new PlayersInfo(new Position(0,0,0), socket, state);
-		}
-		catch {
-			// Throw error !
-		}
-		if (this.clientsList.has(socket.id)) {
-			this.logger.error(`registerClient: client ${playerInfo.getId()} already logged.`)
-			return false;
-		}
-		this.clientsList.set(socket.id, playerInfo);
-		this.clientsSIDList.set(playerInfo.getId(), socket.id);
+		// try {
+		// 	var cookie : string = parse(socket.handshake.headers.cookie)[appService.getSessionCookieName()];
+		// 	var state = await appService.getSessionDataToken(cookie);
+		// 	var playerInfo = new PlayersInfo(new Position(0,0,0), socket, state);
+		// }
+		// catch {
+		// 	this.logger.error(`registerClient: cannot connect client ${socket.id} !`)
+		// 	return false;
+		// 	// Throw error !
+		// }
+		// if (this.clientsList.has(socket.id)) {
+		// 	this.logger.error(`registerClient: client ${playerInfo.getId()} already logged.`)
+		// 	return false;
+		// }
+		// this.clientsList.set(socket.id, playerInfo);
+		// this.clientsSIDList.set(playerInfo.getId(), socket.id);
+		this.newsocket = socket;
+		return true;
 	}
+
+	sendMessage() { this.newsocket.emit('launch', new THREE.Vector3(30, 10, 30));}
 
 	unregisterClient(appService : AppService, client : Socket) {
 		if (!this.clientsList.has(client.id)
@@ -167,7 +179,8 @@ export class GameService {
 	// Info get from clients
 
 	// Check and update new player state
-	updatePlayer() {
+	updatePlayer(position : THREE.Vector3) {
+		Logger.log('position =', position);
 		// Check player pos
 		// Launch potention event
 	}
