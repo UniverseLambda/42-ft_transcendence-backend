@@ -1,4 +1,5 @@
 import { MiddlewareConsumer, Module, NestModule } from '@nestjs/common';
+import { BullModule } from '@nestjs/bull';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
 import { LoginController } from './login/login.controller';
@@ -8,13 +9,22 @@ import { CacheMiddleware } from './cache.middleware';
 import { ChatService } from './chat/chat.service';
 import { ChatGateway } from './chat/chat.gateway';
 import { GameService } from './game/game.service';
-import { GameController } from './game/game.controller';
 import { GameGateway } from './game/game.gateway';
+import { EngineService } from './game/engine.service';
+import { EngineConsumer } from './game/engine.service'; // update file name
 
 @Module({
-  imports: [],
-  controllers: [AppController, LoginController, ProfileController, GameController],
-  providers: [AppService, ChatService, ChatGateway, GameService, GameGateway],
+  imports: [
+	  BullModule.forRoot(
+		  {redis : {host : 'localhost', port : 6379} }
+	  ),
+	  BullModule.registerQueue(
+		  {name : 'gameEngine'},
+		  {name : 'updatePlayer'}
+	  ),
+  ],
+  controllers: [AppController, LoginController, ProfileController],
+  providers: [AppService, ChatService, ChatGateway, GameService, GameGateway, EngineService, EngineConsumer],
 })
 export class AppModule implements NestModule {
   configure(consumer: MiddlewareConsumer) {
