@@ -2,7 +2,6 @@ import { Injectable, Logger } from '@nestjs/common';
 import { AppService, ClientState } from 'src/app.service';
 import { Socket } from 'socket.io';
 import { parse } from "cookie";
-import { ok } from 'assert';
 
 interface MessageReceipient {
 	sendMessage(sender: ChatClient, message: string, roomId?: number): ChatResult;
@@ -10,20 +9,28 @@ interface MessageReceipient {
 }
 
 class ChatClient implements MessageReceipient {
-	private rooms: ChatRoom[] = [];
+	private rooms: Map<number, ChatRoom> = new Map();
 
 	constructor(
 		public socket: Socket,
 		public state: ClientState
 	) {}
 
-	roomJoined(room: ChatRoom) {
-		this.rooms.push(room);
-		this.socket.emit("roomJoined", {roomId: room.roomId, name: room.name});
+	roomJoined(room: ChatRoom, doNotEmit: boolean = false) {
+		this.rooms.set(room.getId(), room);
+
+		if (!doNotEmit)
+			this.socket.emit("roomJoined", {roomId: room.getId(), name: room.name});
+	}
+
+	roomLeaved(room: ChatRoom) {
+		this.rooms.delete(room.getId());
+
+		this.socket.emit("roomLeaved", {roomId: room.getId()});
 	}
 
 	disconnected() {
-		for (let room of this.rooms) {
+		for (let room of this.rooms.values()) {
 			room.userDisconnected(this);
 		}
 	}
@@ -41,6 +48,7 @@ class ChatClient implements MessageReceipient {
 			senderId: sender.getId(),
 			message: message,
 			where: where,
+			login: sender.state.login
 		});
 		return ChatResult.Ok;
 	}
@@ -74,7 +82,6 @@ enum ChatResult {
 	Ok,
 	NotRegistered,
 	TargetNotFound,
-	InvalidName,
 	InvalidValue,
 	AlreadyInRoom,
 	PasswordRequired,
@@ -83,6 +90,8 @@ enum ChatResult {
 	TargetNotInRoom,
 	NotAdmin,
 	Blocked,
+	Muted,
+	Banned,
 }
 
 class ChatRoom implements MessageReceipient {
@@ -90,16 +99,26 @@ class ChatRoom implements MessageReceipient {
 
 	constructor(public readonly roomId: number, public readonly name: string, creator: ChatClient, private roomPrivate: boolean, private password?: string) {
 		if (creator !== null) {
-			this.members.set(creator.state.getId(), new ChatRoomClientData(creator, true));
+			this.addUser(creator, true);
 		}
 	}
 
-	addUser(user: ChatClient): ChatResult {
+	addUser(user: ChatClient, doNotEmit: boolean = false): ChatResult {
 		if (this.members.has(user.state.getId())) return ChatResult.AlreadyInRoom;
 
 		this.members.set(user.state.getId(), new ChatRoomClientData(user, false));
 
-		user.roomJoined(this);
+		user.roomJoined(this, doNotEmit);
+
+		return ChatResult.Ok;
+	}
+
+	removeUser(user: ChatClient): ChatResult {
+		if (this.members.has(user.state.getId())) return ChatResult.NotInRoom;
+
+		this.members.delete(user.state.getId());
+
+		user.roomLeaved(this);
 
 		return ChatResult.Ok;
 	}
@@ -152,6 +171,8 @@ class ChatRoom implements MessageReceipient {
 		if (sender === undefined) {
 			return ChatResult.NotInRoom;
 		}
+
+		// TODO: sendMessage: check for muting
 
 		for (let curr of this.members.values()) {
 			// TODO: sendMessage: Checking if the user is blocked
@@ -228,8 +249,8 @@ export class ChatService {
 	onMessage(socket: Socket, payload: any): boolean {
 		let client: ChatClient = this.checkRegistration(socket, "messageError");
 
-		if (typeof payload.targetId !== "number") {
-			this.logger.error(`onMessage: invalid field targetId type: ${typeof payload.targetId}`)
+		if (typeof payload.targetId !== "number" || !Number.isSafeInteger(payload.targetId)) {
+			this.logger.error(`onMessage: invalid field targetId value: ${payload.targetId}`)
 			socket.emit("messageError", makeError(ChatResult.InvalidValue));
 			return false;
 		}
@@ -243,16 +264,9 @@ export class ChatService {
 		let targetId: number = payload.targetId;
 		let message: string = payload.message;
 
-		if (!Number.isSafeInteger(targetId)) {
-			this.logger.error(`onMessage: invalid field targetId value: ${targetId}`)
-			socket.emit("messageError", makeError(ChatResult.InvalidValue));
-			return false;
-		}
-
 		let target: MessageReceipient;
 
-		// Assuming type, checking only for truthy/falsy value
-		if (targetId < 0) {
+		if (targetId <= 0) {
 			target = this.rooms.get(targetId);
 		} else {
 			target = this.clients.get(this.clientsSID.get(targetId));
@@ -268,10 +282,10 @@ export class ChatService {
 
 		if (result == ChatResult.Ok) {
 			this.logger.debug(`onMessage: received message from ${client.getId()} to ${targetId}: "${message}"`);
-			client.socket.emit("messageSent", { target: target.getId() });
+			client.socket.emit("messageSent", { targetId: target.getId() });
 		} else {
 			let error = makeError(result);
-			error.target = target.getId();
+			error.targetId = target.getId();
 
 			client.socket.emit("messageError", error);
 			this.logger.error(`onMessage: error while sending message from ${client.getId()} to ${target.getId()}: ${getErrorMessage(result)} (${ChatResult[result]})`);
@@ -282,27 +296,32 @@ export class ChatService {
 	}
 
 	createRoom(socket: Socket, payload: any): boolean {
-		let client: ChatClient = this.checkRegistration(socket, "createRoomResult");
+		let client: ChatClient = this.checkRegistration(socket, "createRoomError");
 
 		let name: string;
 		let type: string;
 		let password: string;
 
-		if (!payload.name || typeof payload.name !== "string" || payload.name === "General") {
+		if (!payload.name
+				|| typeof payload.name !== "string"
+				|| payload.name === "General"
+				|| payload.name.length === 0
+				|| payload.name.length > 15
+				|| payload.name.match(/[ .\/\\\-*]/)) {
 			this.logger.error(`createRoom: wrong value for name: ${payload.name}`);
-			socket.emit("createRoomResult", makeError(ChatResult.InvalidValue));
+			socket.emit("createRoomError", makeError(ChatResult.InvalidValue));
 			return false;
 		}
 
 		if (!payload.type || typeof payload.type !== "string") {
 			this.logger.error(`createRoom: wrong value for type: ${payload.type}`);
-			socket.emit("createRoomResult", makeError(ChatResult.InvalidValue));
+			socket.emit("createRoomError", makeError(ChatResult.InvalidValue));
 			return false;
 		}
 
-		if (payload.password !== undefined && typeof payload.password !== "string") {
+		if (payload.password !== undefined && typeof payload.password !== "string" || payload.password.length === 0) {
 			this.logger.error(`createRoom: wrong value for password: ${payload.password}`);
-			socket.emit("createRoomResult", makeError(ChatResult.InvalidValue));
+			socket.emit("createRoomError", makeError(ChatResult.InvalidValue));
 			return false;
 		}
 
@@ -319,7 +338,7 @@ export class ChatService {
 
 		if (timedout) {
 			this.logger.error("createRoom: could not find an available ID in reasonable time");
-			socket.emit("createRoomResult", makeError(ChatResult.InvalidValue));
+			socket.emit("createRoomError", makeError(ChatResult.InvalidValue));
 			return false;
 		}
 
@@ -328,13 +347,35 @@ export class ChatService {
 
 		if (type !== "private") {
 			for (let c of this.clients.values()) {
+				if (c.socket === socket) continue;
+
 				c.socket.send("newRoom", {roomId: roomId, name: name});
 			}
-		} else {
-			client.socket.send("newRoom", {roomId: roomId, name: name});
 		}
 
 		return true;
+	}
+
+	leaveRoom(socket: Socket, payload: any): void {
+		let client: ChatClient = this.checkRegistration(socket, "leaveRoomError");
+		let roomId: number;
+		let room: ChatRoom;
+
+		if (isValidRoomId(payload.roomId)) {
+			this.logger.error(`leaveRoom: invalid roomId value ${payload.roomId}`);
+			socket.emit("leaveRoomError", makeError(ChatResult.InvalidValue));
+			return;
+		}
+
+		room = this.checkRoom(socket, roomId, "leaveRoomError");
+
+		let result = room.removeUser(client);
+
+		if (result !== ChatResult.Ok) {
+			this.logger.error(`leaveRoom: could not leave room: ${ChatResult[result]}`);
+			socket.emit("leaveRoomError", makeError(result));
+			return;
+		}
 	}
 
 	setRoomPassword(socket: Socket, payload: any): boolean {
@@ -342,7 +383,7 @@ export class ChatService {
 		let roomId: number;
 		let room: ChatRoom;
 
-		if (typeof payload.roomId !== "number" || payload.roomId >= 0) {
+		if (isValidRoomId(payload.roomId)) {
 			this.logger.error(`setRoomPassword: invalid roomId value ${payload.roomId}`);
 			socket.emit("setRoomPasswordResult", makeError(ChatResult.InvalidValue));
 			return false;
@@ -350,8 +391,10 @@ export class ChatService {
 
 		room = this.checkRoom(socket, roomId, "setRoomPasswordResult");
 
-		if (typeof payload.password !== "string") {
-			this.logger.error(`setRoomPassword: could invalid password value ${payload.roomId}`);
+		if (payload.password !== undefined
+			|| typeof payload.password !== "string"
+			|| (payload.password !== undefined && payload.password.length === 0)) {
+			this.logger.error(`setRoomPassword: invalid password value ${payload.roomId}`);
 			socket.emit("setRoomPasswordResult", makeError(ChatResult.InvalidValue));
 			return false;
 		}
@@ -374,7 +417,7 @@ export class ChatService {
 		let roomId: number;
 		let room: ChatRoom;
 
-		if (typeof payload.roomId !== "number" || payload.roomId >= 0) {
+		if (isValidRoomId(payload.roomId)) {
 			this.logger.error(`joinRoomError: invalid roomId value ${payload.roomId}`);
 			socket.emit("joinRoomError", makeError(ChatResult.InvalidValue));
 			return;
@@ -398,7 +441,7 @@ export class ChatService {
 
 		let result = room.addUser(client);
 
-		if (room.addUser(client) !== ChatResult.Ok) {
+		if (result !== ChatResult.Ok) {
 			socket.emit("joinRoomError", makeError(result));
 		}
 	}
@@ -434,7 +477,6 @@ function getErrorMessage(res: ChatResult): string {
 		case ChatResult.Ok: return "Noice :)";
 		case ChatResult.NotRegistered: return "client not registered";
 		case ChatResult.TargetNotFound: return "target not found";
-		case ChatResult.InvalidName: return "invalid name";
 		case ChatResult.InvalidValue: return "invalid value";
 		case ChatResult.AlreadyInRoom: return "client already in room";
 		case ChatResult.PasswordRequired: return "password required";
@@ -452,4 +494,8 @@ function makeError(error: ChatResult): any {
 		error: ChatResult[error],
 		message: getErrorMessage(error)
 	};
+}
+
+function isValidRoomId(number: unknown, acceptGeneral: boolean = false): boolean {
+	return typeof number === "number" && Number.isSafeInteger(number) && (number < 0 || (number == 0 && acceptGeneral));
 }

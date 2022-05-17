@@ -49,5 +49,12 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
     } catch (reason) { this.logger.error(`joinRoom: exception thrown: ${reason}`); }
   }
 
-  // TODO: leaveRoom, blockUser, kickUser, muteUser, setAdmin
+  @SubscribeMessage("leaveRoom")
+  leaveRoom(@ConnectedSocket() client: Socket, @MessageBody() payload: any) {
+    try {
+      this.chatService.leaveRoom(client, payload);
+    } catch (reason) { this.logger.error(`leaveRoom: exception thrown: ${reason}`); }
+  }
+
+  // TODO: blockUser, kickUser, muteUser, setAdmin
 }
