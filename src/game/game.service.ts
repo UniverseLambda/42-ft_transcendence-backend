@@ -184,6 +184,8 @@ export class GameService {
 		// let y = THREE.MathUtils.lerp(this.ballP1Pos.y, this.ballP2Pos.y, 0.5);
 		// let z = THREE.MathUtils.lerp(this.ballP1Pos.z, this.ballP2Pos.z, 0.5);
 		// let ballPos = new THREE.Vector3(x, y, z);
+		this.ballP1Pos.x *= -1;
+		// this.ballP1Pos.z *= -1;
 		this.newsocket1.emit('ballServer', this.ballP1Pos);
 		this.newsocket2.emit('ballServer', this.ballP1Pos);
 		// Logger.log('emited ball position =', this.ballP1Pos);
