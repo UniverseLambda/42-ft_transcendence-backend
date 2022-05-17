@@ -19,22 +19,20 @@ export class GameGateway implements OnGatewayConnection, OnGatewayDisconnect {
 			client.disconnect(true);
 			return false;
 		}
-
 	}
 
 	handleDisconnect(client: Socket) {
 		if (!this.gameService.unregisterClient(this.appService, client)) { }
 	}
 
-	@SubscribeMessage('searchGame')
-	handleSearch(@ConnectedSocket() client: any) { }
-
-	@SubscribeMessage('cancelSearch')
-	handleCancelSearch(@ConnectedSocket() client: any) { }
-
 	@SubscribeMessage('throwBall')
-	handleThrowBall(@ConnectedSocket() client: any) {
+	handleThrowBall(@ConnectedSocket() client: Socket) {
 		this.gameService.throwBall(client);
+	}
+
+	@SubscribeMessage('ballPosition')
+	handleBallPosition(@ConnectedSocket() client: Socket, @MessageBody() payload : THREE.Vector3) {
+		this.gameService.calculateBallPosition(client, payload);
 	}
 
 	// TO DO :

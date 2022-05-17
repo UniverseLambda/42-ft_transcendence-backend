@@ -13,6 +13,8 @@ import { GameGateway } from './game/game.gateway';
 import { EngineService } from './game/engine.service';
 import { EngineConsumer } from './game/engine.service'; // update file name
 
+import { MatchmakingGateway } from './game/matchmaking.gateway';
+
 @Module({
   imports: [
 	  BullModule.forRoot(
@@ -24,7 +26,7 @@ import { EngineConsumer } from './game/engine.service'; // update file name
 	  ),
   ],
   controllers: [AppController, LoginController, ProfileController],
-  providers: [AppService, ChatService, ChatGateway, GameService, GameGateway, EngineService, EngineConsumer],
+  providers: [AppService, ChatService, ChatGateway, GameService, GameGateway, MatchmakingGateway, EngineService, EngineConsumer],
 })
 export class AppModule implements NestModule {
   configure(consumer: MiddlewareConsumer) {

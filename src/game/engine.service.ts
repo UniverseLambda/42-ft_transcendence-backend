@@ -1,7 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { Queue, Job, JobId  } from 'bull';
 import { InjectQueue, Processor, Process } from '@nestjs/bull';
-import { GameService } from 'src/game/game.service'
+import { GameService, GameSession } from 'src/game/game.service'
 
 import * as THREE from 'three';
 
@@ -9,15 +9,15 @@ import { Socket } from 'socket.io'
 
 @Injectable()
 export class EngineService {
-	constructor(@InjectQueue('gameEngine') private enginQueue : Queue) { }
+	constructor(@InjectQueue('gameEngine') private enginQueue : Queue, private gameService : GameService) { }
 
 	private jobList : Map<JobId, Job>;
 	// Add the update() loop to the queue.
 	// Precise job parameters -> repeat + communicate data
 	// TO DO : add object in arg to pass data
-	async startEngine() : Promise<JobId> {
+	async sendBall(socket1 : Socket, socket2 : Socket, game : GameSession ) : Promise<JobId> {
 		var newJob : Job<any> = await this.enginQueue.add( 'engineLoop',
-		{ data : '' },
+		{ players : {socket1, socket2}, ballPosition = game.getBallPosition},
 		{ repeat : {every : 15} }
 		);
 		this.jobList.set(newJob.id, newJob);
