@@ -88,11 +88,9 @@ export class GameService {
 		// this.clientsSIDList.set(playerInfo.getId(), socket.id);
 		if (this.clientNb === 1) {
 			this.newsocket1 = socket;
-			// this.newsocket1.emit('player1');
 		}
 		else if (this.clientNb === 2) {
 			this.newsocket2 = socket;
-			// this.newsocket2.emit('player2');
 			this.startGame();
 			this.clientNb = 0;
 		}
@@ -118,8 +116,8 @@ export class GameService {
 		// TO DO : send opponent position
 		this.newsocket1.emit('launch');
 		this.newsocket2.emit('launch');
-		// this.newsocket1.emit('player1');
-		// this.newsocket2.emit('player2');
+		this.newsocket1.emit('player1');
+		this.newsocket2.emit('player2');
 
 		// this.newsocket1.on('ballClient', (data1:THREE.Vector3) => {
 		// 	this.newsocket2.on('ballClient',(data2:THREE.Vector3) => {
@@ -164,7 +162,7 @@ export class GameService {
 	// Checkand update new player state
 	updatePlayer(client : Socket, position : THREE.Vector3) {
 		// client.emit('opponentPosition', position);
-		position.x *= -1;
+		// position.x *= -1;
 		if (client.id === this.newsocket1.id) {
 			// Logger.log('player 1 position =', position);
 			this.newsocket2.emit('opponentPosition', position);
@@ -184,8 +182,7 @@ export class GameService {
 		// let y = THREE.MathUtils.lerp(this.ballP1Pos.y, this.ballP2Pos.y, 0.5);
 		// let z = THREE.MathUtils.lerp(this.ballP1Pos.z, this.ballP2Pos.z, 0.5);
 		// let ballPos = new THREE.Vector3(x, y, z);
-		this.ballP1Pos.x *= -1;
-		// this.ballP1Pos.z *= -1;
+		// this.ballP1Pos.x *= -1;
 		this.newsocket1.emit('ballServer', this.ballP1Pos);
 		this.newsocket2.emit('ballServer', this.ballP1Pos);
 		// Logger.log('emited ball position =', this.ballP1Pos);
