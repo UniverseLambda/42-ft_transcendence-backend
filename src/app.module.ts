@@ -10,21 +10,22 @@ import { ChatService } from './chat/chat.service';
 import { ChatGateway } from './chat/chat.gateway';
 import { GameService } from './game/game.service';
 import { GameGateway } from './game/game.gateway';
-import { EngineService } from './game/engine.service';
-import { EngineConsumer } from './game/engine.service'; // update file name
+// import { EngineService } from './game/engine.service';
+// import { EngineConsumer } from './game/engine.service'; // update file name
 
 @Module({
-  imports: [
-	  BullModule.forRoot(
-		  {redis : {host : 'localhost', port : 6379} }
-	  ),
-	  BullModule.registerQueue(
-		  {name : 'gameEngine'},
-		  {name : 'updatePlayer'}
-	  ),
-  ],
+  // imports: [
+	//   BullModule.forRoot(
+	// 	  {redis : {host : 'localhost', port : 6379} }
+	//   ),
+	//   BullModule.registerQueue(
+	// 	  {name : 'gameEngine'},
+	// 	  {name : 'updatePlayer'}
+	//   ),
+  // ],
   controllers: [AppController, LoginController, ProfileController],
-  providers: [AppService, ChatService, ChatGateway, GameService, GameGateway, EngineService, EngineConsumer],
+  // providers: [AppService, ChatService, ChatGateway, GameService, GameGateway, EngineService, EngineConsumer],
+  providers: [AppService, ChatService, ChatGateway, GameService, GameGateway],
 })
 export class AppModule implements NestModule {
   configure(consumer: MiddlewareConsumer) {

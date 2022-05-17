@@ -3,13 +3,15 @@ import { Logger } from '@nestjs/common';
 import { Socket } from "socket.io";
 import { GameService } from "./game.service";
 import { AppService, ClientState } from "src/app.service";
-import { EngineService } from "src/game/engine.service";
+// import { EngineService } from "src/game/engine.service";
 
 import * as THREE from 'three';
+import { cli } from 'webpack';
 
 @WebSocketGateway({ cors: { origin: "http://localhost:4200" }, namespace: "game" })
 export class GameGateway implements OnGatewayConnection, OnGatewayDisconnect {
-  constructor(private appService : AppService, private gameService: GameService, private engineService: EngineService) {}
+//   constructor(private appService : AppService, private gameService: GameService, private engineService: EngineService) {}
+  constructor(private appService : AppService, private gameService: GameService) {}
   private logger: Logger = new Logger('GameGateway');
 
 	async handleConnection(client: Socket, ...args: any[]) {
@@ -27,13 +29,13 @@ export class GameGateway implements OnGatewayConnection, OnGatewayDisconnect {
 	}
 
 	@SubscribeMessage('searchGame')
-	handleSearch(@ConnectedSocket() client: any) { }
+	handleSearch(@ConnectedSocket() client: Socket) { }
 
 	@SubscribeMessage('cancelSearch')
-	handleCancelSearch(@ConnectedSocket() client: any) { }
+	handleCancelSearch(@ConnectedSocket() client: Socket) { }
 
 	@SubscribeMessage('throwBall')
-	handleThrowBall(@ConnectedSocket() client: any) {
+	handleThrowBall(@ConnectedSocket() client: Socket) {
 		this.gameService.throwBall(client);
 	}
 
@@ -44,7 +46,23 @@ export class GameGateway implements OnGatewayConnection, OnGatewayDisconnect {
 	// - update state
 	// - ASYNC
 	@SubscribeMessage('playerPosition')
-	handlePlayerPosition(@ConnectedSocket() client: any, @MessageBody() payload: THREE.Vector3) {
-		this.engineService.updatePlayer(client, payload);
+	handlePlayerPosition(@ConnectedSocket() client: Socket, @MessageBody() payload: THREE.Vector3) {
+		// this.engineService.updatePlayer(client, payload);
+		this.gameService.updatePlayer(client, payload);
+	}
+
+	@SubscribeMessage('ballClient')
+	handleBallPosition(@ConnectedSocket() client: Socket, @MessageBody() payload: THREE.Vector3) {
+		if (client.id === this.gameService.newsocket1.id) {
+			this.gameService.ballP1Received = true;
+			this.gameService.ballP1Pos = payload;
+		}
+		else if (client.id === this.gameService.newsocket2.id) {
+			this.gameService.ballP2Received = true;
+			this.gameService.ballP2Pos = payload;
+		}
+		// Logger.log('handleBallPosition');
+		if (this.gameService.ballP1Received && this.gameService.ballP2Received)
+			this.gameService.updateBallPosition();
 	}
 }
