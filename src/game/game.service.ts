@@ -114,10 +114,10 @@ export class GameService {
 	startGame() {
 		// this.serverGame = new game(this.newsocket1, this.newsocket2);
 		// TO DO : send opponent position
-		this.newsocket1.emit('launch');
-		this.newsocket2.emit('launch');
-		this.newsocket1.emit('player1');
-		this.newsocket2.emit('player2');
+		this.newsocket1.emit('launch', 'player1');
+		this.newsocket2.emit('launch', 'player2');
+		// this.newsocket1.emit('player1');
+		// this.newsocket2.emit('player2');
 
 		// this.newsocket1.on('ballClient', (data1:THREE.Vector3) => {
 		// 	this.newsocket2.on('ballClient',(data2:THREE.Vector3) => {
@@ -164,12 +164,12 @@ export class GameService {
 		// client.emit('opponentPosition', position);
 		// position.x *= -1;
 		if (client.id === this.newsocket1.id) {
-			// Logger.log('player 1 position =', position);
+			Logger.log('player 1 position =', position);
 			this.newsocket2.emit('opponentPosition', position);
 		}
 		else if (client.id === this.newsocket2.id) {
 			this.newsocket1.emit('opponentPosition', position);
-			// Logger.log('player 2 position =', position);
+			Logger.log('player 2 position =', position);
 		}
 		// console.log('playerPosition event received by the client');
 		// Logger.log('position =', position);
