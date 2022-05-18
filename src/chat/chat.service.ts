@@ -10,6 +10,7 @@ interface MessageReceipient {
 
 class ChatClient implements MessageReceipient {
 	private rooms: Map<number, ChatRoom> = new Map();
+	private blockList: Set<number> = new Set();
 
 	constructor(
 		public socket: Socket,
@@ -39,9 +40,21 @@ class ChatClient implements MessageReceipient {
 		return this.state.getId();
 	}
 
+	addBlocked(target: ChatClient) {
+		this.blockList.add(target.getId());
+	}
+	
+	removeBlocked(target: ChatClient) {
+		this.blockList.delete(target.getId());
+	}
+
 	sendMessage(sender: ChatClient, message: string, where?: number): ChatResult {
 		if (where === undefined) {
 			where = this.getId();
+		}
+
+		if (this.blockList.has(sender.getId())) {
+			return ChatResult.Blocked;
 		}
 
 		this.socket.emit("message", {
@@ -92,19 +105,24 @@ enum ChatResult {
 	Blocked,
 	Muted,
 	Banned,
+	LastAdmin,
 }
 
 class ChatRoom implements MessageReceipient {
-	private members: Map<number, ChatRoomClientData> = new Map<number, ChatRoomClientData>();
+	private members: Map<number, ChatRoomClientData> = new Map();
+	private adminCount: number = 0;
+	private banList: Set<number> = new Set();
 
 	constructor(public readonly roomId: number, public readonly name: string, creator: ChatClient, private roomPrivate: boolean, private password?: string) {
 		if (creator !== null) {
 			this.addUser(creator, true);
+			this.adminCount = 1;
 		}
 	}
 
 	addUser(user: ChatClient, doNotEmit: boolean = false): ChatResult {
 		if (this.members.has(user.state.getId())) return ChatResult.AlreadyInRoom;
+		if (this.banList.has(user.state.getId())) return ChatResult.Banned;
 
 		this.members.set(user.state.getId(), new ChatRoomClientData(user, false));
 
@@ -115,6 +133,13 @@ class ChatRoom implements MessageReceipient {
 
 	removeUser(user: ChatClient): ChatResult {
 		if (this.members.has(user.state.getId())) return ChatResult.NotInRoom;
+		
+
+		let roomClient = this.members.get(user.state.getId());
+
+		if (roomClient.admin && this.adminCount === 1) {
+			return ChatResult.LastAdmin;
+		}
 
 		this.members.delete(user.state.getId());
 
@@ -132,7 +157,13 @@ class ChatRoom implements MessageReceipient {
 
 		if (!sender.admin) return ChatResult.NotAdmin;
 
+		if (!newValue && this.adminCount === 1) {
+			return ChatResult.LastAdmin;
+		}
+
 		target.admin = newValue;
+		this.adminCount += (newValue ? 1 : -1);
+
 		return ChatResult.Ok;
 	}
 
@@ -172,7 +203,9 @@ class ChatRoom implements MessageReceipient {
 			return ChatResult.NotInRoom;
 		}
 
-		// TODO: sendMessage: check for muting
+		if (sender.isMuted()) {
+			return ChatResult.Muted;
+		}
 
 		for (let curr of this.members.values()) {
 			// TODO: sendMessage: Checking if the user is blocked
@@ -184,6 +217,55 @@ class ChatRoom implements MessageReceipient {
 
 	userDisconnected(user: ChatClient) {
 		this.members.delete(user.getId());
+	}
+
+	banUser(client: ChatClient, target: ChatClient) {		
+		let user: ChatRoomClientData = this.members.get(client.getId());
+
+		if (user === undefined) return ChatResult.NotInRoom;
+		if (!user.admin) return ChatResult.NotAdmin;
+
+		this.banList.add(target.getId());
+
+		return ChatResult.Ok;
+	}
+	
+	unbanUser(client: ChatClient, target: ChatClient) {		
+		let user: ChatRoomClientData = this.members.get(client.getId());
+		
+		if (user === undefined) return ChatResult.NotInRoom;
+		if (!user.admin) return ChatResult.NotAdmin;
+		
+		this.banList.delete(target.getId());
+
+		return ChatResult.Ok;
+	}
+
+	kickUser(userClient: ChatClient, targetClient: ChatClient) {
+		let sender: ChatRoomClientData = this.members.get(userClient.state.getId());
+		let target: ChatRoomClientData = this.members.get(targetClient.state.getId());
+
+		if (sender === undefined) return ChatResult.NotInRoom;
+		if (target === undefined) return ChatResult.TargetNotInRoom;
+
+		if (!sender.admin) return ChatResult.NotAdmin;
+
+		this.removeUser(targetClient);
+
+		return ChatResult.Ok;
+	}
+
+	setMute(userClient: ChatClient, targetClient: ChatClient, duration: number) {
+		let sender: ChatRoomClientData = this.members.get(userClient.state.getId());
+		let target: ChatRoomClientData = this.members.get(targetClient.state.getId());
+
+		if (sender === undefined) return ChatResult.NotInRoom;
+		if (target === undefined) return ChatResult.TargetNotInRoom;
+
+		if (!sender.admin) return ChatResult.NotAdmin;
+
+		target.mute(duration);
+		return ChatResult.Ok;
 	}
 
 	getId(): number {
@@ -446,10 +528,183 @@ export class ChatService {
 		}
 	}
 
+	blockUser(socket: Socket, payload: any) {
+		let client: ChatClient = this.checkRegistration(socket, "blockUserError");
+		let targetId: number;
+		let target: ChatClient;
+
+		if (!isValidUserId(payload.targetId)) {
+			this.logger.error(`blockUser: invalid roomId value ${payload.roomId}`);
+			socket.emit("blockUserError", makeError(ChatResult.InvalidValue));
+			return;
+		}
+
+		target = this.checkUser(socket, targetId, "blockUserError");
+
+		client.addBlocked(target);
+
+		socket.emit("userBlocked", {id: targetId});
+	}
+
+	unblockUser(socket: Socket, payload: any) {
+		let client: ChatClient = this.checkRegistration(socket, "unblockUserError");
+		let targetId: number;
+		let target: ChatClient;
+		
+		if (!isValidUserId(payload.targetId)) {
+			this.logger.error(`unblockUser: invalid targetId value ${payload.roomId}`);
+			socket.emit("unblockUserError", makeError(ChatResult.InvalidValue));
+			return;
+		}
+		
+		target = this.checkUser(socket, targetId, "unblockUserError");
+		
+		client.removeBlocked(target);
+		socket.emit("userUnblocked", {id: targetId});
+	}
+
+	setBan(socket: Socket, payload: any) {
+		let client: ChatClient = this.checkRegistration(socket, "setBanError");
+		let room: ChatRoom;
+		let target: ChatClient;
+
+		if (!isValidRoomId(payload.roomId)) {
+			this.logger.error(`setBan: invalid roomId value ${payload.roomId}`);
+			socket.emit("roomError", makeError(ChatResult.InvalidValue));
+			return;
+		}
+
+		if (!isValidUserId(payload.targetId)) {
+			this.logger.error(`setBan: invalid targetId value ${payload.roomId}`);
+			socket.emit("roomError", makeError(ChatResult.InvalidValue));
+			return;
+		}
+		
+		if (typeof payload.action !== "boolean") {
+			this.logger.error(`setBan: invalid action value ${payload.targetId}`);
+			socket.emit("roomError", makeError(ChatResult.InvalidValue));
+			return;
+		}
+
+		room = this.checkRoom(socket, payload.roomId, "roomError");
+
+		let result: ChatResult;
+
+		if (payload.action) {
+			result = room.banUser(client, target);
+		} else {
+			result = room.unbanUser(client, target);
+		}
+
+		if (result === ChatResult.Ok) {
+			socket.emit("userBanned", {roomId: payload.roomId, targetId: payload.targetId});
+		} else {
+			socket.emit("roomError", makeError(result));
+		}
+	}
+
+	kickUser(socket: Socket, payload: any) {
+		let client: ChatClient = this.checkRegistration(socket, "kickUserError");
+		let room: ChatRoom;
+		let target: ChatClient;
+
+		if (!isValidRoomId(payload.roomId)) {
+			this.logger.error(`setBan: invalid roomId value ${payload.roomId}`);
+			socket.emit("roomError", makeError(ChatResult.InvalidValue));
+			return;
+		}
+
+		if (!isValidUserId(payload.targetId)) {
+			this.logger.error(`setBan: invalid targetId value ${payload.targetId}`);
+			socket.emit("roomError", makeError(ChatResult.InvalidValue));
+			return;
+		}
+
+		room = this.checkRoom(socket, payload.roomId, "roomError");
+
+		let result: ChatResult = room.kickUser(client, target);
+
+		if (result === ChatResult.Ok) {
+			socket.emit("userKicked", {roomId: payload.roomId, targetId: payload.targetId});
+		} else {
+			socket.emit("roomError", makeError(result));
+		}
+	}
+
+	setMute(socket: Socket, payload: any) {
+		let client: ChatClient = this.checkRegistration(socket, "setMuteError");
+		let room: ChatRoom;
+		let target: ChatClient;
+		
+		if (!isValidRoomId(payload.roomId)) {
+			this.logger.error(`setMute: invalid roomId value ${payload.roomId}`);
+			socket.emit("roomError", makeError(ChatResult.InvalidValue));
+			return;
+		}
+		
+		if (!isValidUserId(payload.targetId)) {
+			this.logger.error(`setMute: invalid targetId value ${payload.targetId}`);
+			socket.emit("roomError", makeError(ChatResult.InvalidValue));
+			return;
+		}
+		
+		if (typeof (payload.duration) !== "number" || Number.isSafeInteger(payload.duration)) {
+			this.logger.error(`setMute: invalid duration value ${payload.roomId}`);
+			socket.emit("roomError", makeError(ChatResult.InvalidValue));
+			return;
+		}
+		
+		room = this.checkRoom(socket, payload.roomId, "setMuteError");
+		
+		let result: ChatResult = room.setMute(client, target, payload.duration);
+		
+		if (result === ChatResult.Ok) {
+			socket.emit("userMuted", {roomId: payload.roomId, targetId: payload.targetId, duration: payload.duration});
+		} else {
+			socket.emit("roomError", makeError(result));
+		}
+	}
+
+	setAdmin(socket: Socket, payload: any) {
+		let client: ChatClient = this.checkRegistration(socket, "setAdminError");
+		let room: ChatRoom;
+		let target: ChatClient;
+		
+		if (!isValidRoomId(payload.roomId)) {
+			this.logger.error(`setAdmin: invalid roomId value ${payload.roomId}`);
+			socket.emit("roomError", makeError(ChatResult.InvalidValue));
+			return;
+		}
+		
+		if (!isValidUserId(payload.targetId)) {
+			this.logger.error(`setAdmin: invalid targetId value ${payload.targetId}`);
+			socket.emit("roomError", makeError(ChatResult.InvalidValue));
+			return;
+		}
+		
+		if (typeof (payload.action) !== "boolean") {
+			this.logger.error(`setAdmin: invalid duration value ${payload.roomId}`);
+			socket.emit("roomError", makeError(ChatResult.InvalidValue));
+			return;
+		}
+		
+		room = this.checkRoom(socket, payload.roomId, "setAdminError");
+		
+		let result: ChatResult = room.setAdmin(client, target, payload.action);
+
+		if (result === ChatResult.Ok) {
+			socket.emit("setAdminResult", {roomId: payload.roomId, targetId: payload.targetId, action: payload.action});
+		} else {
+			socket.emit("roomError", makeError(result));
+		}
+	}
+	
+	
+
 	checkRegistration(socket: Socket, errorEvent?: string): ChatClient {
 		let clientId = socket.id;
 		let client: ChatClient = this.clients.get(clientId);
-
+		
 		if (!client && errorEvent !== undefined) {
 			socket.emit(errorEvent, makeError(ChatResult.NotRegistered));
 
@@ -470,6 +725,19 @@ export class ChatService {
 
 		return room;
 	}
+	
+	checkUser(socket: Socket, userId: number, errorEvent?: string): ChatClient {
+		let clientSID: string = this.clientsSID.get(userId);
+		let client: ChatClient = this.clients.get(clientSID);
+	
+		if (!client && errorEvent !== undefined) {
+			socket.emit(errorEvent, makeError(ChatResult.TargetNotFound));
+	
+			throw `room ${socket.id} not found`;
+		}
+	
+		return client;
+	}
 }
 
 function getErrorMessage(res: ChatResult): string {
@@ -485,6 +753,9 @@ function getErrorMessage(res: ChatResult): string {
 		case ChatResult.TargetNotInRoom: return "target client not in the room";
 		case ChatResult.NotAdmin: return "client not admin of the room";
 		case ChatResult.Blocked: return "client blocked by target";
+		case ChatResult.Muted: return "you've been muted";
+		case ChatResult.Banned: return "you've been banned from this channel";
+		case ChatResult.LastAdmin: return "you're the last admin, you cannot perform this action";
 		default: return "unknown error";
 	}
 }
@@ -498,4 +769,8 @@ function makeError(error: ChatResult): any {
 
 function isValidRoomId(number: unknown, acceptGeneral: boolean = false): boolean {
 	return typeof number === "number" && Number.isSafeInteger(number) && (number < 0 || (number == 0 && acceptGeneral));
+}
+
+function isValidUserId(number: unknown): boolean {
+	return typeof number === "number" && Number.isSafeInteger(number) && number > 0;
 }
