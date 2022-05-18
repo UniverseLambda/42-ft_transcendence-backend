@@ -1,7 +1,7 @@
 import { SubscribeMessage, WebSocketGateway, MessageBody, OnGatewayConnection, OnGatewayDisconnect, ConnectedSocket } from '@nestjs/websockets';
 import { Logger } from '@nestjs/common';
 import { Socket } from "socket.io";
-import { GameService } from "./game.service";
+import { GameService, GameSession } from "./game.service";
 import { AppService, ClientState } from "src/app.service";
 // import { EngineService } from "src/game/engine.service";
 
@@ -43,8 +43,6 @@ export class GameGateway implements OnGatewayConnection, OnGatewayDisconnect {
 	handleBallPosition(@ConnectedSocket() client: Socket, @MessageBody() payload : THREE.Vector3) {
 		//to launch job :
 		this.gameService.updateBallPosition(client, payload);
-		//to launch in another job :
-		this.gameService.sendBallPosition(this.gameService.getGame(client.id));
 	}
 
 	// TO DO :

@@ -96,6 +96,17 @@ export class GameSession {
 		this.player1.sendMessage('startGame', []);
 		this.player2.sendMessage('startGame', []);
 	}
+
+	public sendBallPosition() {
+		//// LERP
+		// let x = THREE.MathUtils.lerp(this.ballP1Pos.x, this.ballP2Pos.x, 0.5);
+		// let y = THREE.MathUtils.lerp(this.ballP1Pos.y, this.ballP2Pos.y, 0.5);
+		// let z = THREE.MathUtils.lerp(this.ballP1Pos.z, this.ballP2Pos.z, 0.5);
+		// let ballPos = new THREE.Vector3(x, y, z);
+		// this.ballP1Pos.x *= -1;
+		this.player1.sendMessage('ballServer', this.ballPosition);
+		this.player2.sendMessage('ballServer', this.ballPosition);
+	}
 }
 
 export function ExceptionUser (message : string) {
@@ -121,6 +132,8 @@ export class GameService {
 	private clientIDList : Map<number, Client>;
 	private pendingList : Map<string, Client>;
 	private gameList : Map<number, GameSession>;
+
+	private nbClient : number = 0;
 
 	// Took either a socket.id or ClientState.id
 	// Return Client class
@@ -216,24 +229,48 @@ export class GameService {
 		try {
 			var cookie : string = parse(socket.handshake.headers.cookie)[appService.getSessionCookieName()];
 			var state = await appService.getSessionDataToken(cookie);
+			/////////////////////////////////
+			// REMOVE IT WHEN OPERATIONNAL //
+			var client = new Client(socket, state, '', 1); // 1 is default
+			/////////////////////////////////
 		}
 		catch {
 			this.logger.error(`registerClient: cannot connect client ${socket.id} !`)
 			socket.emit('connection failure', []);
 			return false;
 		}
-		if (!this.clientIDList.has(state.getId()))
-			throw ExceptionUser('Player not registered.');
+			///////////////////////////////////////
+			//// UNCOMMENT IT WHEN OPERATIONAL ////
+			///////////////////////////////////////
+		// if (!this.clientIDList.has(state.getId()))
+		// 	throw ExceptionUser('Player not registered.');
+		// var client = this.clientIDList.get(state.getId());
+		// if (!this.gameList.has(client.getGameId))
+		// 	throw ExceptionGameSession('Player is not registered to a game.');
 
-		var client = this.clientIDList.get(state.getId());
-		if (!this.gameList.has(client.getGameId))
-			throw ExceptionGameSession('Player is not registered to a game.');
+			/////////////////////////////////
+			// REMOVE IT WHEN OPERATIONNAL //
+		this.nbClient++;
+		this.clientIDList.set(state.getId(), client);
+			/////////////////////////////////
 
 		// Updating the socket in client list and add new socket reference to the other.
 		// The matchmaking connection erased previous client connection.
 		client.getSocket = socket;
 		this.clientList.set(socket.id, client);
 		socket.emit('connected', []);
+
+			/////////////////////////////////
+			// REMOVE IT WHEN OPERATIONNAL //
+		if (this.nbClient == 2) {
+			var arrayClient = this.clientList.values();
+			var p1 : Client = arrayClient[0];
+			var p2 : Client = arrayClient[1];
+			// Create a game manually
+			var newGame = new GameSession(p1, p2);
+			this.gameList.set(newGame.getId, newGame);
+		}
+			/////////////////////////////////
 		return true;
 	}
 
@@ -301,19 +338,8 @@ export class GameService {
 
 		var gameSession = this.getGame(socket.id);
 		gameSession.getBallPosition = newPosition;
-	}
-
-	// TODO : JOBS
-	sendBallPosition(gameSession : GameSession) {
-		//// LERP
-		// let x = THREE.MathUtils.lerp(this.ballP1Pos.x, this.ballP2Pos.x, 0.5);
-		// let y = THREE.MathUtils.lerp(this.ballP1Pos.y, this.ballP2Pos.y, 0.5);
-		// let z = THREE.MathUtils.lerp(this.ballP1Pos.z, this.ballP2Pos.z, 0.5);
-		// let ballPos = new THREE.Vector3(x, y, z);
-		// this.ballP1Pos.x *= -1;
-
-		gameSession.getPlayer1.sendMessage('ballServer', gameSession.getBallPosition);
-		gameSession.getPlayer2.sendMessage('ballServer', gameSession.getBallPosition);
+		// MAYBE REMOVE LATER
+		gameSession.sendBallPosition();
 	}
 
 	// Checkand update new player state

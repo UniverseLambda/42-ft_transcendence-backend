@@ -17,7 +17,7 @@ export class EngineService {
 	// TO DO : add object in arg to pass data
 	async sendBall(socket1 : Socket, socket2 : Socket, game : GameSession ) : Promise<JobId> {
 		var newJob : Job<any> = await this.enginQueue.add( 'engineLoop',
-		{ players : {socket1, socket2}, ballPosition = game.getBallPosition},
+		{ players : {socket1, socket2}, ballPosition : game.getBallPosition},
 		{ repeat : {every : 15} }
 		);
 		this.jobList.set(newJob.id, newJob);
@@ -47,7 +47,7 @@ export class EngineConsumer {
 
 	@Process('engineLoop')
 	async engineLoop(job : Job<any>) {
-		await this.gameService.sendBallPosition();
+		// await this.gameService.sendBallPosition(job);
 	}
 
 	// need implementation
