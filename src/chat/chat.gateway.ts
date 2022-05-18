@@ -56,5 +56,45 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
     } catch (reason) { this.logger.error(`leaveRoom: exception thrown: ${reason}`); }
   }
 
-  // TODO: blockUser, kickUser, muteUser, setAdmin
+  @SubscribeMessage("blockUser")
+  blockUser(@ConnectedSocket() client: Socket, @MessageBody() payload: any) {
+    try {
+      this.chatService.blockUser(client, payload);
+    } catch (reason) { this.logger.error(`blockUser: exception thrown: ${reason}`); }
+  }
+  
+  @SubscribeMessage("unblockUser")
+  unblockUser(@ConnectedSocket() client: Socket, @MessageBody() payload: any) {
+    try {
+      this.chatService.unblockUser(client, payload);
+    } catch (reason) { this.logger.error(`unblockUser: exception thrown: ${reason}`); }
+  }
+
+  @SubscribeMessage("setBan")
+  setBan(@ConnectedSocket() client: Socket, @MessageBody() payload: any) {
+    try {
+      this.chatService.setBan(client, payload);
+    } catch (reason) { this.logger.error(`setBan: exception thrown: ${reason}`); }
+  }
+  
+  @SubscribeMessage("kickUser")
+  kickUser(@ConnectedSocket() client: Socket, @MessageBody() payload: any) {
+    try {
+      this.chatService.kickUser(client, payload);
+    } catch (reason) { this.logger.error(`kickUser: exception thrown: ${reason}`); }
+  }
+
+  @SubscribeMessage("setMute")
+  setMute(@ConnectedSocket() client: Socket, @MessageBody() payload: any) {
+    try {
+      this.chatService.setMute(client, payload);
+    } catch (reason) { this.logger.error(`setMute: exception thrown: ${reason}`); }
+  }
+
+  @SubscribeMessage("setAdmin")
+  setAdmin(@ConnectedSocket() client: Socket, @MessageBody() payload: any) {
+    try {
+      this.chatService.setAdmin(client, payload);
+    } catch (reason) { this.logger.error(`setAdmin: exception thrown: ${reason}`); }
+  }
 }
