@@ -329,5 +329,7 @@ export class GameService {
 	// TODO End game ?
 	endGame(client : Socket) {
 		var getGame = this.getGame(client.id);
+		getGame.getPlayer1.isInGame = false;
+		getGame.getPlayer2.isInGame = false;
 	}
 }
