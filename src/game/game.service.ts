@@ -269,6 +269,7 @@ export class GameService {
 			// Create a game manually
 			var newGame = new GameSession(p1, p2);
 			this.gameList.set(newGame.getId, newGame);
+			this.nbClient = 0;
 		}
 			/////////////////////////////////
 		return true;
