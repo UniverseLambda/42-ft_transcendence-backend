@@ -28,8 +28,7 @@ export class GameGateway implements OnGatewayConnection, OnGatewayDisconnect {
 
 	@SubscribeMessage('ready')
 	handleReady(@ConnectedSocket() client : Socket) {
-		if (this.gameService.readyToStart(client))
-			this.gameService.startGame();
+		this.gameService.readyToStart(client);
 	}
 
 	@SubscribeMessage('throwBall')
