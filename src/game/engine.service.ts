@@ -28,8 +28,8 @@ export class EngineService {
 		await this.jobList.get(jobId).remove();
 	}
 
-	async updatePlayer(client : Socket, payload : THREE.Vector3) {
-		var newJob : Job<any> = await this.enginQueue.add( 'updatePlayer',
+	async updateBall(client : Socket, payload : THREE.Vector3) {
+		var newJob : Job<any> = await this.enginQueue.add( 'updateBall',
 		{ client, payload }
 		);
 		this.jobList.set(newJob.id, newJob);
@@ -47,12 +47,12 @@ export class EngineConsumer {
 
 	@Process('engineLoop')
 	async engineLoop(job : Job<any>) {
-		await this.gameService.launchUpdate();
+		await this.gameService.sendBallPosition();
 	}
 
 	// need implementation
-	@Process('updatePlayer')
-	async updatePlayer(job : Job<any>) {
-		await this.gameService.updatePlayer(job.data.client, job.data.payload);
+	@Process('updateBall')
+	async updateBall(job : Job<any>) {
+		await this.gameService.updateBallPosition(job.data.client, job.data.payload);
 	}
 }

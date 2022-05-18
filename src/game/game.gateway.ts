@@ -3,29 +3,31 @@ import { Logger } from '@nestjs/common';
 import { Socket } from "socket.io";
 import { GameService } from "./game.service";
 import { AppService, ClientState } from "src/app.service";
-import { EngineService } from "src/game/engine.service";
+// import { EngineService } from "src/game/engine.service";
 
 import * as THREE from 'three';
 
 @WebSocketGateway({ cors: { origin: "http://localhost:4200" }, namespace: "game" })
 export class GameGateway implements OnGatewayConnection, OnGatewayDisconnect {
-  constructor(private appService : AppService, private gameService: GameService, private engineService: EngineService) {}
+  // constructor(private appService : AppService, private gameService: GameService, private engineService: EngineService) {}
+  constructor(private appService : AppService, private gameService: GameService) {}
   private logger: Logger = new Logger('GameGateway');
 
 	async handleConnection(client: Socket, ...args: any[]) {
 		// await this.chatService.registerConnection(this.appService, client);
-		this.logger.log('LALAILALIOY : ', client.id);
+		this.logger.log('CONNECTION : ', client.id);
 		if (!await this.gameService.registerClient(this.appService, client)) {
 			client.disconnect(true);
 			return false;
 		}
-		this.gameService.startGame(client);
 	}
 
 	handleDisconnect(client: Socket) {
+		this.logger.log('DISCONNECTION : ', client.id);
 		this.gameService.unregisterClient(client);
 	}
 
+	// Need implementation client side
 	@SubscribeMessage('ready')
 	handleReady(@ConnectedSocket() client : Socket) {
 		this.gameService.readyToStart(client);
@@ -38,7 +40,10 @@ export class GameGateway implements OnGatewayConnection, OnGatewayDisconnect {
 
 	@SubscribeMessage('ballPosition')
 	handleBallPosition(@ConnectedSocket() client: Socket, @MessageBody() payload : THREE.Vector3) {
+		//to launch job :
 		this.gameService.updateBallPosition(client, payload);
+		//to launch in another job :
+		this.gameService.sendBallPosition(this.gameService.getGame(client.id));
 	}
 
 	// TO DO :
@@ -49,6 +54,6 @@ export class GameGateway implements OnGatewayConnection, OnGatewayDisconnect {
 	// - ASYNC
 	@SubscribeMessage('playerPosition')
 	handlePlayerPosition(@ConnectedSocket() client: any, @MessageBody() payload: THREE.Vector3) {
-		this.engineService.updatePlayer(client, payload);
+		this.gameService.updatePlayer(client, payload);
 	}
 }
