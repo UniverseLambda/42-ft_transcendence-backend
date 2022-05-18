@@ -22,6 +22,8 @@ export class PendingClient { constructor(public id : number, public map : string
 
 export class Client {
 	private inGame : boolean = true;
+	private isReady : boolean = false;
+	private gameId : number;
 	constructor(private socket : Socket,
 		private state : ClientState,
 		private map : string,
@@ -33,6 +35,9 @@ export class Client {
 
 	public get isInGame() : boolean { return this.inGame; }
 	public set isInGame(status : boolean) { this.inGame = status; }
+
+	public get getGameId() : number { return this.gameId; }
+	public set getGameId(id : number) { this.gameId = id; }
 
 	public get getSocket() : Socket { return this.socket; }
 	public set getSocket(status : Socket) { this.socket = status; }
@@ -51,12 +56,33 @@ export class Client {
 export class GameSession {
 	private scores : Scores;
 	private ballPosition : THREE.Vector3;
-	constructor(private player1 : Client, private player2 : Client) {}
+	private readyStatus : [p1 : boolean, p2 : boolean] = [false, false];
+	private id : number;
+	constructor(private player1 : Client, private player2 : Client) {
+		this.id = player1.getId + player2.getId;
+		this.player1.getGameId = this.id;
+		this.player2.getGameId = this.id;
+	}
 
 	public get getDifficulty() : number { return this.player1.getDifficulty; }
 	public get getBallPosition() : THREE.Vector3 { return this.ballPosition; }
 
-	public calculateBallPosition() {}
+	public get getScores() : Scores { return this.scores; }
+	public set getScores(newScores : Scores) { this.scores = newScores; }
+
+	public get getPlayer1() : Client { return this.player1; }
+	public get getPlayer2() : Client { return this.player2; }
+
+	public isPlayer1(socket : Socket) : boolean { return socket.id === this.player1.getSocket.id; }
+
+	public get getReady() : [p1 : boolean, p2 : boolean] { return this.readyStatus; }
+	public set getReady(status : [p1 : boolean, p2 : boolean]) { this.readyStatus = status; }
+
+	public get getId() : number { return this.id; }
+
+	public calculateBallPosition(position : THREE.Vector3) {
+
+	}
 }
 
 export function ExceptionUser (message : string) {
@@ -69,6 +95,11 @@ export function ExceptionSocketConnection (message : string) {
 	this.message = message;
 }
 
+export function ExceptionGameSession (message : string) {
+	this.name = "ExceptionSocketConnection : ";
+	this.message = message;
+}
+
 @Injectable()
 export class GameService {
 	private readonly logger : Logger = new Logger(GameService.name);
@@ -76,7 +107,7 @@ export class GameService {
 	private clientList : Map<string, Client>;
 	private clientIDList : Map<number, Client>;
 	private pendingList : Map<string, Client>;
-	private gameList : Map<string, GameSession>;
+	private gameList : Map<number, GameSession>;
 
 	public newsocket1 : Socket;
 	public newsocket2 : Socket;
@@ -145,8 +176,11 @@ export class GameService {
 	gameFound(player1 : Client, player2 : Client) {
 		player1.sendMessage('found', []);
 		player2.sendMessage('found', []);
-		this.unregisterClient(player1.getSocket);
-		this.unregisterClient(player1.getSocket);
+
+		var newGame = new GameSession(player1, player2);
+		this.gameList.set(newGame.getId, newGame);
+		this.unregisterPending(player1.getSocket);
+		this.unregisterPending(player1.getSocket);
 		this.logger.log(`Players ${player1.getId} | ${player2.getId} found a game.`);
 	}
 
@@ -182,8 +216,12 @@ export class GameService {
 			socket.emit('connection failure', []);
 			return false;
 		}
-		if (!this.clientIDList.has(state.getId()) || this.clientIDList.get(state.getId()).isInGame)
+		if (!this.clientIDList.has(state.getId()))
 			throw ExceptionUser('Player not registered or already in game.');
+
+		var gameId = this.clientIDList.get(state.getId()).getGameId;
+		if (!this.gameList.has(gameId))
+			throw ExceptionGameSession('Player is not registered to a game.');
 
 		// Updating the socket in client list and add new socket reference to the other.
 		// The matchmaking connection erased previous client connection.
@@ -209,18 +247,63 @@ export class GameService {
 		this.clientIDList.clear();
 	}
 
-	startGame(player1 : Socket) {
-		this.serverGame = new game(this.newsocket1, this.newsocket2);
-		// TO DO : send opponent position
-		this.newsocket1.emit('launch');
-		this.newsocket2.emit('launch');
+	// startGame(player1 : Socket) {
+	// 	this.serverGame = new game(this.newsocket1, this.newsocket2);
+	// 	// TO DO : send opponent position
+	// 	this.newsocket1.emit('player1');
+	// 	this.newsocket2.emit('player2');
+	// 	this.newsocket1.emit('launch');
+	// 	this.newsocket2.emit('launch');
+	// }
+
+	// Will be moved up
+	getGame(socketId : string) : GameSession {
+		return this.gameList.get(this.clientList.get(socketId).getGameId);
 	}
 
+	readyToStart(client : Socket) {
+		var gameSession = this.getGame(client.id);
+
+		if (gameSession.isPlayer1(client)) {
+			gameSession.getReady[0] = true
+			if (gameSession.getReady[1] === true)
+				this.startGame(gameSession);
+		}
+		else if (!gameSession.isPlayer1(client)) {
+			gameSession.getReady[1] = true
+			if (gameSession.getReady[0] === true)
+				this.startGame(gameSession);
+		}
+	}
+
+	startGame(gameSession : GameSession) {
+		gameSession.getPlayer1.sendMessage('launch', 'player1');
+		gameSession.getPlayer2.sendMessage('launch', 'player2');
+		// launch job or let the clients do this
+	}
+
+	// throwBall(client : Socket) {
+	// 	if (client !== this.newsocket1)
+	// 		return ;
+	// 	logic.startGame = true;
+	// 	Logger.log('ball thown');
+	// }
+
 	throwBall(client : Socket) {
-		if (client !== this.newsocket1)
-			return ;
-		logic.startGame = true;
-		Logger.log('ball thown');
+		var gameSession = this.getGame(client.id);
+		if (gameSession.isPlayer1(client))
+			//emit
+	}
+
+	updateBallPosition() {
+		// let x = THREE.MathUtils.lerp(this.ballP1Pos.x, this.ballP2Pos.x, 0.5);
+		// let y = THREE.MathUtils.lerp(this.ballP1Pos.y, this.ballP2Pos.y, 0.5);
+		// let z = THREE.MathUtils.lerp(this.ballP1Pos.z, this.ballP2Pos.z, 0.5);
+		// let ballPos = new THREE.Vector3(x, y, z);
+		// this.ballP1Pos.x *= -1;
+		this.newsocket1.emit('ballServer', this.ballP1Pos);
+		this.newsocket2.emit('ballServer', this.ballP1Pos);
+		// Logger.log('emited ball position =', this.ballP1Pos);
 	}
 
 	// Checkand update new player state

@@ -19,10 +19,17 @@ export class GameGateway implements OnGatewayConnection, OnGatewayDisconnect {
 			client.disconnect(true);
 			return false;
 		}
+		this.gameService.startGame(client);
 	}
 
 	handleDisconnect(client: Socket) {
-		if (!this.gameService.unregisterClient(this.appService, client)) { }
+		this.gameService.unregisterClient(client);
+	}
+
+	@SubscribeMessage('ready')
+	handleReady(@ConnectedSocket() client : Socket) {
+		if (this.gameService.readyToStart(client))
+			this.gameService.startGame();
 	}
 
 	@SubscribeMessage('throwBall')
@@ -32,7 +39,7 @@ export class GameGateway implements OnGatewayConnection, OnGatewayDisconnect {
 
 	@SubscribeMessage('ballPosition')
 	handleBallPosition(@ConnectedSocket() client: Socket, @MessageBody() payload : THREE.Vector3) {
-		this.gameService.calculateBallPosition(client, payload);
+		this.gameService.updateBallPosition(client, payload);
 	}
 
 	// TO DO :
