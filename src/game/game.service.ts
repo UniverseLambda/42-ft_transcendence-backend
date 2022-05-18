@@ -12,6 +12,7 @@ import { logic } from "src/game/game.logic"
 // import { Vector3 } from 'three';
 
 import * as THREE from 'three';
+import { cli } from 'webpack';
 
 export class Position { constructor(public posx : number, public posy : number, public posz : number) {}; }
 export class Players { constructor(public p1 : string, public p2 : string) {} }

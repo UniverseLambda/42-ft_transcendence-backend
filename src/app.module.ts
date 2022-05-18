@@ -16,15 +16,15 @@ import { GameGateway } from './game/game.gateway';
 import { MatchmakingGateway } from './game/matchmaking.gateway';
 
 @Module({
-  imports: [
-	  BullModule.forRoot(
-		  {redis : {host : 'localhost', port : 6379} }
-	  ),
-	  BullModule.registerQueue(
-		  {name : 'gameEngine'},
-		  {name : 'updateBall'}
-	  ),
-  ],
+  // imports: [
+	//   BullModule.forRoot(
+	// 	  {redis : {host : 'localhost', port : 6379} }
+	//   ),
+	//   BullModule.registerQueue(
+	// 	  {name : 'gameEngine'},
+	// 	  {name : 'updateBall'}
+	//   ),
+  // ],
   controllers: [AppController, LoginController, ProfileController],
   // providers: [AppService, ChatService, ChatGateway, GameService, GameGateway, MatchmakingGateway, EngineService, EngineConsumer],
   providers: [AppService, ChatService, ChatGateway, GameService, GameGateway, MatchmakingGateway],

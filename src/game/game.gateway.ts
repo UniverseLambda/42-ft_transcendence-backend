@@ -6,6 +6,7 @@ import { AppService, ClientState } from "src/app.service";
 // import { EngineService } from "src/game/engine.service";
 
 import * as THREE from 'three';
+import { cli } from 'webpack';
 
 @WebSocketGateway({ cors: { origin: "http://localhost:4200" }, namespace: "game" })
 export class GameGateway implements OnGatewayConnection, OnGatewayDisconnect {
@@ -38,7 +39,7 @@ export class GameGateway implements OnGatewayConnection, OnGatewayDisconnect {
 		this.gameService.throwBall(client);
 	}
 
-	@SubscribeMessage('ballPosition')
+	@SubscribeMessage('ballClient')
 	handleBallPosition(@ConnectedSocket() client: Socket, @MessageBody() payload : THREE.Vector3) {
 		//to launch job :
 		this.gameService.updateBallPosition(client, payload);
