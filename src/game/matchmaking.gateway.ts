@@ -7,7 +7,7 @@ import { AppService, ClientState } from "src/app.service";
 @WebSocketGateway({ cors: { origin: "http://localhost:4200" }, namespace: "matchmaking" })
 export class MatchmakingGateway implements OnGatewayConnection, OnGatewayDisconnect {
   constructor(private appService : AppService, private gameService: GameService) {}
-  private logger: Logger = new Logger('MatchmakingGateway');
+  private logger: Logger = new Logger(MatchmakingGateway.name);
 
 	async handleConnection(client: Socket, ...args: any[]) {
 		this.logger.log('front connected : ', client.id);

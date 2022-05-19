@@ -2,9 +2,9 @@ import { Injectable, Logger } from '@nestjs/common';
 import { Socket } from 'socket.io'
 import { AppService, ClientState } from 'src/app.service';
 import { parse } from "cookie";
-import { game } from "src/game/game.server"
-import { shape } from "src/game/game.shape"
-import { logic } from "src/game/game.logic"
+// import { game } from "src/game/game.server"
+// import { shape } from "src/game/game.shape"
+// import { logic } from "src/game/game.logic"
 
 // import { EngineService } from "src/game/engine.service"
 // import { Job, JobId } from "bull"
@@ -12,7 +12,7 @@ import { logic } from "src/game/game.logic"
 // import { Vector3 } from 'three';
 
 import * as THREE from 'three';
-import { cli } from 'webpack';
+// import { cli } from 'webpack';
 
 export class Position { constructor(public posx : number, public posy : number, public posz : number) {}; }
 export class Players { constructor(public p1 : string, public p2 : string) {} }
@@ -123,7 +123,7 @@ export function ExceptionUser (message : string) {
 }
 
 export function ExceptionUserNotRegister (message : string) {
-	this.logger.error(`[GAME] Client is not registered.`);
+	Logger.error(`[GAME] Client is not registered.`);
 	this.name = "ExceptionUserNotRegister : ";
 	this.message = message
 }
@@ -140,7 +140,7 @@ export function ExceptionGameSession (message : string) {
 
 @Injectable()
 export class GameService {
-	private readonly logger : Logger = new Logger(GameService.name);
+	private logger : Logger = new Logger(GameService.name);
 
 	private clientList : Map<string, Client> = new Map();
 	private clientIDList : Map<number, Client> = new Map();
@@ -234,12 +234,12 @@ export class GameService {
 		var clientSession = this.clientList.get(socket.id);
 		if (socket.connected)
 			clientSession.disconnect();
+		this.logger.log(`[MATCHMAKING] Client ${this.findClientSocket(socket.id).getId} unregistered.`);
 		if (!clientSession.isAuthentified)
 			this.clientIDList.delete(clientSession.getId);
 		if (this.pendingList.has(socket.id))
 			this.pendingList.delete(socket.id);
 		this.clientList.delete(socket.id);
-		this.logger.log(`[MATCHMAKING] Client ${this.findClientSocket(socket.id).getId} unregistered.`);
 	}
 	unregisterAllPending() {
 		this.pendingList.forEach(element => {
@@ -255,7 +255,7 @@ export class GameService {
 	// Game phase : searching, starting and end game session
 
 	async registerClient(appService : AppService, socket : Socket) {
-		Logger.log(`[GAME] New client -${socket.id}- connected.`);
+		this.logger.log(`[GAME] New client -${socket.id}- connected.`);
 		try {
 			var cookie : string = parse(socket.handshake.headers.cookie)[appService.getSessionCookieName()];
 			var state = await appService.getSessionDataToken(cookie);
@@ -291,7 +291,6 @@ export class GameService {
 		// The matchmaking connection erased previous client connection.
 		client.getSocket = socket;
 		this.clientList.set(socket.id, client);
-		socket.emit('connected', []);
 
 		/////////////////////////////////
 		// REMOVE IT WHEN OPERATIONNAL //
@@ -305,7 +304,7 @@ export class GameService {
 		// 	this.nbClient = 0;
 		// }
 		/////////////////////////////////
-		Logger.log(`[GAME] Client -${socket.id}- authentified.`);
+		this.logger.log(`[GAME] Client -${socket.id}- authentified.`);
 	}
 
 	unregisterClient(client : Socket) {
@@ -316,10 +315,10 @@ export class GameService {
 		var clientData = this.clientList.get(client.id);
 		if (client.connected)
 			clientData.disconnect();
+		this.logger.log(`[GAME] Client -${this.clientList.get(client.id).getId}- unregistered.`);
 		if (!clientData.isAuthentified || !clientData.isInGame)
 			this.clientIDList.delete(this.clientList.get(client.id).getId);
 		this.clientList.delete(client.id);
-		Logger.log(`[GAME] Client -${this.clientList.get(client.id).getId}- unregistered.`);
 	}
 	unregisterAllClient() {
 		this.clientList.forEach(element => {
@@ -329,7 +328,7 @@ export class GameService {
 		this.clientList.clear();
 		this.clientIDList.clear();
 		this.gameList.clear();
-		Logger.log(`[GAME] Game sessions and client lists cleaned.`);
+		this.logger.log(`[GAME] Game sessions and client lists cleaned.`);
 	}
 
 	// Will be moved up
@@ -342,7 +341,7 @@ export class GameService {
 			throw ExceptionUserNotRegister(`readyToStart`);
 		}
 		var gameSession = this.getGame(client.id);
-		Logger.log(`[GAME] Client ${this.clientList.get(client.id).getId} set as ready.`);
+		this.logger.log(`[GAME] Client ${this.clientList.get(client.id).getId} set as ready.`);
 
 		if (gameSession.isPlayer1(client)) {
 			gameSession.getReady[0] = true
@@ -386,7 +385,6 @@ export class GameService {
 			gameSession.getPlayer2.sendMessage('opponentPosition', position);
 		else
 			gameSession.getPlayer1.sendMessage('opponentPosition', position);
-		Logger.log('New player position = ', position);
 	}
 
 	// TODO End game ?
