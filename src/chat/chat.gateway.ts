@@ -62,7 +62,7 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
       this.chatService.blockUser(client, payload);
     } catch (reason) { this.logger.error(`blockUser: exception thrown: ${reason}`); }
   }
-  
+
   @SubscribeMessage("unblockUser")
   unblockUser(@ConnectedSocket() client: Socket, @MessageBody() payload: any) {
     try {
@@ -76,7 +76,7 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
       this.chatService.setBan(client, payload);
     } catch (reason) { this.logger.error(`setBan: exception thrown: ${reason}`); }
   }
-  
+
   @SubscribeMessage("kickUser")
   kickUser(@ConnectedSocket() client: Socket, @MessageBody() payload: any) {
     try {

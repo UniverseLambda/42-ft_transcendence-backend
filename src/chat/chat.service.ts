@@ -3,7 +3,7 @@ import { AppService, ClientState } from 'src/app.service';
 import { Socket } from 'socket.io';
 import { parse } from "cookie";
 
-const GENERAL_ROOM_NAME: string = "World General";
+const GENERAL_ROOM_NAME: string = "World_General";
 const GENERAL_ROOM_ID: number = -1;
 
 interface MessageReceipient {
@@ -118,7 +118,7 @@ class ChatRoom implements MessageReceipient {
 
 	constructor(public readonly roomId: number, public readonly name: string, creator: ChatClient, private roomPrivate: boolean, private password?: string) {
 		if (creator !== null) {
-			this.addUser(creator, true);
+			this.addUser(creator);
 			this.adminCount = 1;
 		}
 	}
@@ -211,7 +211,8 @@ class ChatRoom implements MessageReceipient {
 		}
 
 		for (let curr of this.members.values()) {
-			// TODO: sendMessage: Checking if the user is blocked
+			if (curr.getId() === user.getId()) continue;
+
 			curr.sendMessage(user, message, this.roomId);
 		}
 
@@ -274,6 +275,10 @@ class ChatRoom implements MessageReceipient {
 	getId(): number {
 		return this.roomId;
 	}
+
+	isPrivate(): boolean {
+		return this.roomPrivate;
+	}
 }
 
 @Injectable()
@@ -296,11 +301,11 @@ export class ChatService {
 			const cookie: string = parse(socket.handshake.headers.cookie)[appService.getSessionCookieName()];
 			client = await appService.getSessionDataToken(cookie);
 		} catch (reason) {
-			this.logger.error(`registerConnection: could not read get session data from cookie ${reason}`);
+			this.logger.error(`registerConnection: could not read get session data from cookie (${reason})`);
 			return false;
 		}
 
-		// Second case is VERY unlikely, but we're never too sure
+		// Second case is VERY unlikely, but we're never too sure (it happened tho)
 		if (this.clientsSID.has(client.getId()) || this.clients.has(socket.id)) {
 			this.logger.error(`registerConnection: double chat opened for ${client.getId()} (${client.login})`);
 			return false;
@@ -313,6 +318,13 @@ export class ChatService {
 		this.rooms.get(-1).addUser(chatClient);
 
 		this.logger.debug(`registerConnection: user ${client.getId()} (socket: ${socket.id}) joined the chat!`);
+
+		// TODO: check for private rooms in which the user is (db)
+		for (let r of this.rooms.values()) {
+			if (r.isInRoom(chatClient) || r.isPrivate()) continue;
+
+			chatClient.socket.emit("newRoom", {roomId: r.getId(), name: r.name});
+		}
 
 		return true;
 	}
@@ -387,16 +399,18 @@ export class ChatService {
 		let type: string;
 		let password: string;
 
+
 		if (!payload.name
-				|| typeof payload.name !== "string"
-				|| payload.name === GENERAL_ROOM_NAME
-				|| payload.name.length === 0
-				|| payload.name.length > 15
-				|| payload.name.match(/[ .\/\\\-*]/)) {
-			this.logger.error(`createRoom: wrong value for name: ${payload.name}`);
-			socket.emit("createRoomError", makeError(ChatResult.InvalidValue));
-			return false;
-		}
+			|| typeof payload.name !== "string"
+			|| payload.name === GENERAL_ROOM_NAME
+			|| payload.name.length === 0
+			|| payload.name.length > 15
+			|| payload.name.match(/[ .\/\\\-*]/)) {
+				this.logger.error(`createRoom: wrong value for name: ${payload.name}`);
+				socket.emit("createRoomError", makeError(ChatResult.InvalidValue));
+				return false;
+			}
+
 
 		if (!payload.type || typeof payload.type !== "string") {
 			this.logger.error(`createRoom: wrong value for type: ${payload.type}`);
@@ -404,13 +418,16 @@ export class ChatService {
 			return false;
 		}
 
-		if (payload.password !== undefined && typeof payload.password !== "string" || payload.password.length === 0) {
+		if (payload.password !== undefined && typeof payload.password !== "string") {
 			this.logger.error(`createRoom: wrong value for password: ${payload.password}`);
 			socket.emit("createRoomError", makeError(ChatResult.InvalidValue));
 			return false;
 		}
 
-		[name, type, password] = payload;
+		[name, type, password] = [payload.name, payload.type, payload.password];
+
+		if (password.length === 0)
+			password = undefined;
 
 		let startTime = Date.now();
 		let roomId: number;
@@ -499,26 +516,25 @@ export class ChatService {
 
 	joinRoom(socket: Socket, payload: any) {
 		let client: ChatClient = this.checkRegistration(socket, "joinRoomError");
-		let roomId: number;
 		let room: ChatRoom;
 
-		if (isValidRoomId(payload.roomId) || payload.roomId === GENERAL_ROOM_ID) {
-			this.logger.error(`joinRoomError: invalid roomId value ${payload.roomId}`);
+		if (!isValidRoomId(payload.roomId) || payload.roomId === GENERAL_ROOM_ID) {
+			this.logger.error(`joinRoom: invalid roomId value ${payload.roomId}`);
 			socket.emit("joinRoomError", makeError(ChatResult.InvalidValue));
 			return;
 		}
 
-		room = this.checkRoom(socket, roomId, "joinRoomError");
+		room = this.checkRoom(socket, payload.roomId, "joinRoomError");
 
 		if (room.hasPassword()) {
-			if (typeof payload.password !== "string") {
-				this.logger.error(`joinRoomError: invalid password value ${payload.roomId}`);
+			if (typeof payload.password !== "string" || payload.password.length === 0) {
+				this.logger.error(`joinRoom: invalid password value ${payload.roomId}`);
 				socket.emit("joinRoomError", makeError(ChatResult.PasswordRequired));
 				return;
 			}
 
 			if (!room.isGoodPassword(payload.password)) {
-				this.logger.error(`joinRoomError: wrong password ${payload.roomId}`);
+				this.logger.error(`joinRoom: wrong password ${payload.roomId}`);
 				socket.emit("joinRoomError", makeError(ChatResult.WrongPassword));
 				return;
 			}
@@ -528,6 +544,8 @@ export class ChatService {
 
 		if (result !== ChatResult.Ok) {
 			socket.emit("joinRoomError", makeError(result));
+		} else {
+			this.logger.verbose(`joinRoom: user ${client.getId()} joined room ${payload.roomId}`);
 		}
 	}
 
@@ -571,7 +589,7 @@ export class ChatService {
 		let room: ChatRoom;
 		let target: ChatClient;
 
-		if (!isValidRoomId(payload.roomId)) {
+		if (!isValidRoomId(payload.roomId) || payload.roomId === GENERAL_ROOM_ID) {
 			this.logger.error(`setBan: invalid roomId value ${payload.roomId}`);
 			socket.emit("roomError", makeError(ChatResult.InvalidValue));
 			return;
@@ -611,7 +629,7 @@ export class ChatService {
 		let room: ChatRoom;
 		let target: ChatClient;
 
-		if (!isValidRoomId(payload.roomId)) {
+		if (!isValidRoomId(payload.roomId) || payload.roomId === GENERAL_ROOM_ID) {
 			this.logger.error(`setBan: invalid roomId value ${payload.roomId}`);
 			socket.emit("roomError", makeError(ChatResult.InvalidValue));
 			return;
@@ -639,7 +657,7 @@ export class ChatService {
 		let room: ChatRoom;
 		let target: ChatClient;
 
-		if (!isValidRoomId(payload.roomId)) {
+		if (!isValidRoomId(payload.roomId) || payload.roomId === GENERAL_ROOM_ID) {
 			this.logger.error(`setMute: invalid roomId value ${payload.roomId}`);
 			socket.emit("roomError", makeError(ChatResult.InvalidValue));
 			return;
@@ -673,7 +691,7 @@ export class ChatService {
 		let room: ChatRoom;
 		let target: ChatClient;
 
-		if (!isValidRoomId(payload.roomId)) {
+		if (!isValidRoomId(payload.roomId) || payload.roomId === GENERAL_ROOM_ID) {
 			this.logger.error(`setAdmin: invalid roomId value ${payload.roomId}`);
 			socket.emit("roomError", makeError(ChatResult.InvalidValue));
 			return;
