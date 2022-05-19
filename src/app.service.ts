@@ -49,6 +49,8 @@ export class ClientState {
     private defaultAvatarUrl: string,
     public level: number = 1,
     public rank: string = "N00b",
+    public win: number = 0,
+    public loose: number = 0,
   ) {}
 
   public getId(): number {

@@ -134,7 +134,6 @@ export class ProfileController {
 			this.logger.error(`Could not reset avatar: ${reason}`);
 		}
 
-
 		return "OK";
 	}
 
@@ -172,7 +171,7 @@ export class ProfileController {
 	}
 
 	@Post("get_user_info")
-	async getUserInfo(@Req() req: Request, @Res() res: Response, @Body("id") idStr?: string) {
+	async getUserInfo(@Req() req: Request, @Res() res: Response, @Body("targetId") idStr?: string) {
 		let sess = await this.appService.getSessionData(req);
 		let id: number;
 
@@ -190,19 +189,30 @@ export class ProfileController {
 
 		let client: ClientState = await this.appService.getClientState(id);
 
+		// TODO: getUserInfo: retrieve from DB
+		if (client === undefined) {
+			return {
+				error: "NotFound"
+			};
+		}
+
 		let data: any = {
 			id: client.getId(),
 			login: client.login,
 			displayName: client.displayName,
 			imageUrl: this.appService.getAvatarUrl(client),
 			userStatus: client.userStatus,
+			rank: client.rank,
+			level: client.level,
+			win: client.win,
+			loose: client.loose,
 		}
 
 		if (client.getId() === sess.getId()) {
 			data.requires2FA = (client.totpSecret !== undefined);
 		}
 
-		return res.json();
+		return res.json(data).end();
 	}
 
 	@Post("activate_2fa")
