@@ -140,33 +140,9 @@ export class ProfileController {
 
 	@Post("get_friend_list")
 	async getFriendList(@Req() req: Request) {
-		let data = await this.appService.getSessionData(req);
+		let sess = await this.appService.getSessionData(req);
 
-		// login, level, rank, userStatus
-
-		return [
-			{
-				id: 78541,
-				login: "sbaranes",
-				level: 50,
-				rank: "ZEMASTER",
-				userStatus: "Offline",
-			},
-			{
-				id: 77068,
-				login: "clsaad",
-				level: 50,
-				rank: "N00b",
-				userStatus: "Online",
-			},
-			{
-				id: 2,
-				login: "A",
-				level: 50,
-				rank: "Meh",
-				userStatus: "InGame",
-			},
-		];
+		return this.appService.getFriendList(sess);
 	}
 
 	@Post(["match_history", "match_history/:id"])
@@ -276,5 +252,33 @@ export class ProfileController {
 
 		this.appService.deactivate2FA(sess);
 		return {};
+	}
+
+	@Post("add_friend")
+	async addFriend(@Req() req: Request, @Body("targetId") targetId?: any): Promise<any> {
+		let sess = await this.appService.getSessionData(req);
+
+		if (typeof targetId !== "number" || !Number.isSafeInteger(targetId)) {
+			this.logger.warn(`addFriend: invalid targetId value ${targetId}`);
+			return {
+				error: "TAMERE"
+			};
+		}
+
+		return this.appService.addFriend(sess, targetId);
+	}
+
+	@Post("remove_friend")
+	async removeFriend(@Req() req: Request, @Body("targetId") targetId?: any): Promise<any> {
+		let sess = await this.appService.getSessionData(req);
+
+		if (typeof targetId !== "number" || !Number.isSafeInteger(targetId)) {
+			this.logger.warn(`removeFriend: invalid targetId value ${targetId}`);
+			return {
+				error: "TAMERE"
+			};
+		}
+
+		return this.appService.removeFriend(sess, targetId);
 	}
 }

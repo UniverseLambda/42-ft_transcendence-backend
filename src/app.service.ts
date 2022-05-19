@@ -38,13 +38,17 @@ export class ClientState {
   public totpInPreparation: boolean = false;
   public socketCount: number = 0;
 
+  private friendList: Set<number> = new Set();
+
   constructor(
     private id: number,
     public lastSeen: number,
     public userStatus: UserStatus,
     public login: string,
     public displayName: string,
-    private defaultAvatarUrl: string
+    private defaultAvatarUrl: string,
+    public level: number = 1,
+    public rank: string = "N00b",
   ) {}
 
   public getId(): number {
@@ -53,6 +57,24 @@ export class ClientState {
 
   public getDefaultAvatarUrl(): string {
     return this.defaultAvatarUrl;
+  }
+
+  public addFriend(friend: number) {
+    this.friendList.add(friend);
+  }
+
+  public removeFriend(friendId: number) {
+    this.friendList.delete(friendId);
+  }
+
+  public getFriendList(): number[] {
+    let result: number[] = [];
+
+    for (let f of this.friendList.keys()) {
+      result.push(f);
+    }
+
+    return result;
   }
 }
 
@@ -336,6 +358,69 @@ export class AppService {
 
     sess.totpSecret = undefined;
     sess.totpInPreparation = false;
+  }
+
+  addFriend(sess: ClientState, targetId: number): any {
+    let target = this.getClientState(targetId);
+
+    this.logger.debug(`addFriend: client ${sess.getId()} (${sess.login}) added ${targetId} to their friends`);
+
+    if (target !== undefined) {
+      target.addFriend(sess.getId());
+    }
+
+    sess.addFriend(targetId);
+
+    // TODO: addFriend: Flush to db
+
+    return { success: "YAY" };
+  }
+
+  removeFriend(sess: ClientState, targetId: number): any {
+    let target = this.getClientState(targetId);
+
+    this.logger.debug(`removeFriend: client ${sess.getId()} (${sess.login}) removed ${targetId} to their friends`);
+
+    if (target !== undefined) {
+      target.removeFriend(sess.getId());
+    }
+
+    sess.removeFriend(targetId);
+
+    // TODO: addFriend: Flush to db
+
+    return { success: "YAY" };
+  }
+
+  getFriendList(sess: ClientState): any[] {
+    let friendList: any[] = [];
+
+    for (let f of sess.getFriendList()) {
+      let curr: ClientState = this.getClientState(f);
+      let data: any;
+
+      if (curr === undefined) {
+        // TODO: getFriendList: get data from DB
+        data = {
+          id: f,
+          login: "XXXXXXXXXXX",
+          level: 0,
+          rank: "???????",
+          userStatus: "Offline",
+        }
+      } else {
+        data = {
+          id: f,
+          login: curr.login,
+          level: curr.level,
+          rank: curr.rank,
+          userStatus: UserStatus[curr.userStatus],
+        }
+      }
+
+      friendList.push(data);
+    }
+    return friendList;
   }
 
   ensureFileOps(p: string): boolean {
