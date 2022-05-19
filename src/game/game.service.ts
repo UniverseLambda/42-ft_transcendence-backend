@@ -118,24 +118,32 @@ export class GameSession {
 }
 
 export function ExceptionUser (message : string) {
-	this.name = "ExceptionUser : ";
-	this.message = message;
+	return {
+		name: "ExceptionUser : ",
+		message: message,
+	}
 }
 
 export function ExceptionUserNotRegister (message : string) {
 	Logger.error(`[GAME] Client is not registered.`);
-	this.name = "ExceptionUserNotRegister : ";
-	this.message = message
+	return {
+		name: "ExceptionUserNotRegister : ",
+		message: message,
+	}
 }
 
 export function ExceptionSocketConnection (message : string) {
-	this.name = "ExceptionSocketConnection : ";
-	this.message = message;
+	return {
+		name: "ExceptionSocketConnection : ",
+		message: message,
+	}
 }
 
 export function ExceptionGameSession (message : string) {
-	this.name = "ExceptionSocketConnection : ";
-	this.message = message;
+	return {
+		name: "ExceptionGameSession : ",
+		message: message,
+	}
 }
 
 @Injectable()
@@ -200,32 +208,37 @@ export class GameService {
 	searchGame(socket : Socket, playerInfo : PendingClient) {
 		if (!this.clientList.has(socket.id) || !this.clientIDList.has(playerInfo.id))
 			throw ExceptionUserNotRegister("searchGame");
-		this.logger.log(`[MATCHMAKING] Client -${this.findClientSocket(socket.id)}- is looking for an opponent...`);
+		this.logger.log(`[MATCHMAKING] Client -${socket.id}- is looking for an opponent...`);
 
 		var player = this.clientIDList.get(playerInfo.id);
 		player.getMap = playerInfo.map;
 		player.getDifficulty = playerInfo.difficulty;
 
-		this.pendingList.forEach(element => {
+		for (let element of this.pendingList.values()) {
 			if (element.getDifficulty === player.getDifficulty) {
 				this.gameFound(element, player);
-				return ;
+				return;
 			}
-		});
+		}
+
 		this.pendingList.set(socket.id, player);
+		this.logger.log(`AAAAAAAAAA ID: ${socket.id} (${playerInfo.id})`);
 		this.logger.log(`[MATCHMAKING] Client -${this.findClientSocket(socket.id).getId}- entered a pool.`);
 	}
 
 	// Send the message to the player then delete it from data
 	gameFound(player1 : Client, player2 : Client) {
+		this.logger.log(`[MATCHMAKING] Players ${player1.getId} | ${player2.getId} found a game.`);
+
 		player1.sendMessage('found', []);
 		player2.sendMessage('found', []);
 
 		var newGame = new GameSession(player1, player2);
 		this.gameList.set(newGame.getId, newGame);
-		this.unregisterPending(player1.getSocket);
-		this.unregisterPending(player1.getSocket);
-		this.logger.log(`[MATCHMAKING] Players ${player1.getId} | ${player2.getId} found a game.`);
+		if (player1.getSocket.connected)
+			player1.disconnect();
+		if (player2.getSocket.connected)
+			player2.disconnect();
 	}
 
 	unregisterPending(socket : Socket) {
