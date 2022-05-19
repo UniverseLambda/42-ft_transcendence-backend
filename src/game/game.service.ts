@@ -54,7 +54,10 @@ export class Client {
 
 	public get getId() : number { return this.state.getId(); }
 
-	public disconnect() { this.socket.disconnect(); }
+	public disconnect() {
+		this.socket.disconnect();
+		Logger.log(`Client ${this.socket.id} disconnected`);
+	}
 }
 
 export class GameSession {
@@ -91,6 +94,7 @@ export class GameSession {
 		this.player2.isInGame = true;
 		this.player1.sendMessage('launch', 'player1');
 		this.player2.sendMessage('launch', 'player2');
+		Logger.log(`[GAME] Game session ${this.id} launched.`);
 	}
 
 	// Start Set Phase : the period between the ball throwing
@@ -98,6 +102,7 @@ export class GameSession {
 	public startSet() {
 		this.player1.sendMessage('startGame', []);
 		this.player2.sendMessage('startGame', []);
+		Logger.log(`[GAME] Set of game session ${this.id} started!`);
 	}
 
 	public sendBallPosition() {
@@ -115,6 +120,12 @@ export class GameSession {
 export function ExceptionUser (message : string) {
 	this.name = "ExceptionUser : ";
 	this.message = message;
+}
+
+export function ExceptionUserNotRegister (message : string) {
+	this.logger.error(`[GAME] Client is not registered.`);
+	this.name = "ExceptionUserNotRegister : ";
+	this.message = message
 }
 
 export function ExceptionSocketConnection (message : string) {
@@ -136,13 +147,17 @@ export class GameService {
 	private pendingList : Map<string, Client>;
 	private gameList : Map<number, GameSession>;
 
-	private nbClient : number = 0;
+	/////////////////////////////////
+	// REMOVE IT WHEN OPERATIONNAL //
+	// private nbClient : number = 0;
+	/////////////////////////////////
 
 	// Took either a socket.id or ClientState.id
 	// Return Client class
 	public findClientSocket(id : string) {
-		if (!this.clientList.has(id))
-			throw ExceptionUser("findUser");
+		if (!this.clientList.has(id)) {
+			throw ExceptionUserNotRegister("findClientSocket");
+		}
 		return this.clientList.get(id);
 	}
 
@@ -151,13 +166,13 @@ export class GameService {
 	// Game phase : searching, starting and end game session
 
 	async registerMatchmaking(appService : AppService, socket : Socket) {
-		Logger.log(`[MATCHMAKING] New client -${socket.id}- connected.`);
+		this.logger.log(`[MATCHMAKING] New client -${socket.id}- connected.`);
 		try {
 			var cookie : string = parse(socket.handshake.headers.cookie)[appService.getSessionCookieName()];
 			var state = await appService.getSessionDataToken(cookie);
 		}
 		catch {
-			this.logger.error(`registerMatchmaking: cannot connect client ${socket.id} !`)
+			this.logger.error(`[MATCHMAKING] Failed to authentify socket -${socket.id}-.`);
 			throw ExceptionSocketConnection('registerMatchmaking');
 		}
 		// If already registered, recreate it in Client List
@@ -167,21 +182,25 @@ export class GameService {
 			clientSession = this.clientIDList.get(state.getId());
 			clientSession.getSocket = socket;
 			this.clientList.set(socket.id, clientSession);
+			this.logger.log(`[MATCHMAKING] Client -${socket.id}- reconnected.`);
 		}
 		else {
 			clientSession = new Client(socket, true, state, '', 0);
-			Logger.log(`New client -${socket.id}- is looking for a match.`);
 			this.clientIDList.set(state.getId(), clientSession);
+			this.logger.log(`[MATCHMAKING] New client -${socket.id}- is registered.`);
 		}
 		this.clientList.set(socket.id, clientSession);
-		if (!socket.connected)
+		if (!socket.connected) {
+			this.logger.error(`[MATCHMAKING] Socket -${socket.id}- suddenly disconnect.`);
 			throw ExceptionSocketConnection('registerFront');
+		}
 		return true;
 	}
 
 	searchGame(socket : Socket, playerInfo : PendingClient) {
-		if (!this.clientIDList.has(playerInfo.id))
-			throw ExceptionUser('searchGame');
+		if (!this.clientList.has(socket.id) || !this.clientIDList.has(playerInfo.id))
+			throw ExceptionUserNotRegister("searchGame");
+		this.logger.log(`[MATCHMAKING] Client -${this.findClientSocket(socket.id)}- is looking for an opponent...`);
 
 		var player = this.clientIDList.get(playerInfo.id);
 		player.getMap = playerInfo.map;
@@ -194,6 +213,7 @@ export class GameService {
 			}
 		});
 		this.pendingList.set(socket.id, player);
+		this.logger.log(`[MATCHMAKING] Client -${this.findClientSocket(socket.id).getId}- entered a pool.`);
 	}
 
 	// Send the message to the player then delete it from data
@@ -205,20 +225,21 @@ export class GameService {
 		this.gameList.set(newGame.getId, newGame);
 		this.unregisterPending(player1.getSocket);
 		this.unregisterPending(player1.getSocket);
-		this.logger.log(`Players ${player1.getId} | ${player2.getId} found a game.`);
+		this.logger.log(`[MATCHMAKING] Players ${player1.getId} | ${player2.getId} found a game.`);
 	}
 
-	unregisterPending(client : Socket) {
-		if (!this.clientList.has(client.id))
-			throw ExceptionUser('unregisterPending : disconnect unregistered client');
-		var clientSession = this.clientList.get(client.id);
-		if (client.connected)
-			client.disconnect();
+	unregisterPending(socket : Socket) {
+		if (!this.clientList.has(socket.id))
+			throw ExceptionUserNotRegister("unregisterPending");
+		var clientSession = this.clientList.get(socket.id);
+		if (socket.connected)
+			clientSession.disconnect();
 		if (!clientSession.isAuthentified)
 			this.clientIDList.delete(clientSession.getId);
-		if (this.pendingList.has(client.id))
-			this.pendingList.delete(client.id);
-		this.clientList.delete(client.id);
+		if (this.pendingList.has(socket.id))
+			this.pendingList.delete(socket.id);
+		this.clientList.delete(socket.id);
+		this.logger.log(`[MATCHMAKING] Client ${this.findClientSocket(socket.id).getId} unregistered.`);
 	}
 	unregisterAllPending() {
 		this.pendingList.forEach(element => {
@@ -226,9 +247,8 @@ export class GameService {
 			element.disconnect();
 		});
 		this.pendingList.clear();
+		this.logger.log(`[MATCHMAKING] Matchmaking cleared.`);
 	}
-
-
 
 	//////////////////////////////////////////////////
 	///////////////// GAME PHASE
@@ -241,28 +261,31 @@ export class GameService {
 			var state = await appService.getSessionDataToken(cookie);
 			/////////////////////////////////
 			// REMOVE IT WHEN OPERATIONNAL //
-			var client = new Client(socket, true, state, '', 1); // 1 is default
+			// var client = new Client(socket, true, state, '', 1); // 1 is default
 			/////////////////////////////////
 		}
 		catch {
-			this.logger.error(`registerClient: cannot connect client ${socket.id} !`)
-			socket.emit('connection failure', []);
-			return false;
+			this.logger.error(`[GAME] Cannot authentify socket ${socket.id} !`)
+			throw ExceptionUserNotRegister(`registerClient`);
 		}
 			///////////////////////////////////////
 			//// UNCOMMENT IT WHEN OPERATIONAL ////
 			///////////////////////////////////////
-		// if (!this.clientIDList.has(state.getId()))
-		// 	throw ExceptionUser('Player not registered.');
-		// var client = this.clientIDList.get(state.getId());
-		// if (!this.gameList.has(client.getGameId))
-		// 	throw ExceptionGameSession('Player is not registered to a game.');
+		if (!this.clientIDList.has(state.getId())) {
+			this.logger.log(`[GAME] Client ${state.getId()} is not registered.`);
+			throw ExceptionGameSession(`registerClient`);
+		}
+		var client = this.clientIDList.get(state.getId());
+		if (!this.gameList.has(client.getGameId)) {
+			this.logger.log(`[GAME] Client ${state.getId()} is not registered to a game.`);
+			throw ExceptionGameSession(`registerClient`);
+		}
 
-			/////////////////////////////////
-			// REMOVE IT WHEN OPERATIONNAL //
-		this.nbClient++;
-		this.clientIDList.set(state.getId(), client);
-			/////////////////////////////////
+		/////////////////////////////////
+		// REMOVE IT WHEN OPERATIONNAL //
+		// this.nbClient++;
+		// this.clientIDList.set(state.getId(), client);
+		/////////////////////////////////
 
 		// Updating the socket in client list and add new socket reference to the other.
 		// The matchmaking connection erased previous client connection.
@@ -270,24 +293,25 @@ export class GameService {
 		this.clientList.set(socket.id, client);
 		socket.emit('connected', []);
 
-			/////////////////////////////////
-			// REMOVE IT WHEN OPERATIONNAL //
-		if (this.nbClient == 2) {
-			var arrayClient = this.clientList.values();
-			var p1 : Client = arrayClient[0];
-			var p2 : Client = arrayClient[1];
-			// Create a game manually
-			var newGame = new GameSession(p1, p2);
-			this.gameList.set(newGame.getId, newGame);
-			this.nbClient = 0;
-		}
-			/////////////////////////////////
-		return true;
+		/////////////////////////////////
+		// REMOVE IT WHEN OPERATIONNAL //
+		// if (this.nbClient == 2) {
+		// 	var arrayClient = this.clientList.values();
+		// 	var p1 : Client = arrayClient[0];
+		// 	var p2 : Client = arrayClient[1];
+		// 	// Create a game manually
+		// 	var newGame = new GameSession(p1, p2);
+		// 	this.gameList.set(newGame.getId, newGame);
+		// 	this.nbClient = 0;
+		// }
+		/////////////////////////////////
+		Logger.log(`[GAME] Client -${socket.id}- authentified.`);
 	}
 
 	unregisterClient(client : Socket) {
-		if (!this.clientList.has(client.id) || !this.clientIDList.has(this.clientList.get(client.id).getId))
-			throw ExceptionUser('unregisterClient');
+		if (!this.clientList.has(client.id) || !this.clientIDList.has(this.clientList.get(client.id).getId)) {
+			throw ExceptionUserNotRegister(`unregisterClient`);
+		}
 		// First disconnect the socket, share between lists.
 		var clientData = this.clientList.get(client.id);
 		if (client.connected)
@@ -295,6 +319,7 @@ export class GameService {
 		if (!clientData.isAuthentified || !clientData.isInGame)
 			this.clientIDList.delete(this.clientList.get(client.id).getId);
 		this.clientList.delete(client.id);
+		Logger.log(`[GAME] Client -${this.clientList.get(client.id).getId}- unregistered.`);
 	}
 	unregisterAllClient() {
 		this.clientList.forEach(element => {
@@ -303,6 +328,8 @@ export class GameService {
 		});
 		this.clientList.clear();
 		this.clientIDList.clear();
+		this.gameList.clear();
+		Logger.log(`[GAME] Game sessions and client lists cleaned.`);
 	}
 
 	// Will be moved up
@@ -311,7 +338,11 @@ export class GameService {
 	}
 
 	readyToStart(client : Socket) {
+		if (!this.clientList.has(client.id) || !this.clientIDList.has(this.clientList.get(client.id).getId)) {
+			throw ExceptionUserNotRegister(`readyToStart`);
+		}
 		var gameSession = this.getGame(client.id);
+		Logger.log(`[GAME] Client ${this.clientList.get(client.id).getId} set as ready.`);
 
 		if (gameSession.isPlayer1(client)) {
 			gameSession.getReady[0] = true
@@ -329,33 +360,26 @@ export class GameService {
 		gameSession.launchGame();
 	}
 
-	// throwBall(client : Socket) {
-	// 	if (client !== this.newsocket1)
-	// 		return ;
-	// 	Logger.log('ball thrown');
-	// 	this.newsocket1.emit('startGame');
-	// 	this.newsocket2.emit('startGame');
-	// }
+	// Socket is not checked for optimisation purpose
 	throwBall(client : Socket) {
 		var gameSession = this.getGame(client.id);
 		gameSession.startSet();
-		this.logger.log('ball thrown');
+		this.logger.log('[GAME] ball thrown');
 	}
 
 	// Calculate the position at each reception of 'ballClient'.
 	// Send in Job
+	// Socket is not checked for optimisation purpose
 	updateBallPosition(socket : Socket, newPosition : THREE.Vector3) {
 		// Register and check if the player is registered
-		if (!this.clientList.has(socket.id))
-			throw ExceptionUser('user not registered.');
-
 		var gameSession = this.getGame(socket.id);
 		gameSession.getBallPosition = newPosition;
-		// MAYBE REMOVE LATER
+		// MAYBE REMOVE LATER FOR A JOB
 		gameSession.sendBallPosition();
 	}
 
 	// Checkand update new player state
+	// Socket is not checked for optimisation purpose
 	async updatePlayer(client : Socket, position : THREE.Vector3) {
 		var gameSession = this.getGame(client.id);
 		if (gameSession.isPlayer1(client))
