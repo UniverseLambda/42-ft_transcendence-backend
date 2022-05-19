@@ -13,21 +13,21 @@ export class MatchmakingGateway implements OnGatewayConnection, OnGatewayDisconn
 		this.logger.log('front connected : ', client.id);
 		try { await this.gameService.registerMatchmaking(this.appService, client); }
 		catch (e) {
-			this.logger.error(e.name + e.message);
+			this.logger.error("handleConnection: " + e.name + " " + e.message);
 			client.disconnect(true);
 		}
 	}
 
 	handleDisconnect(client: Socket) {
 		try { this.gameService.unregisterPending(client); }
-		catch (e) { this.logger.error(e.name + e.message); }
+		catch (e) { this.logger.error("handleDisconnect: " + e.name + " " + e.message); }
 	}
 
 	@SubscribeMessage('search')
 	handleSearchMatch(@ConnectedSocket() client: Socket, @MessageBody() payload : PendingClient) {
 		try { this.gameService.searchGame(client, payload); }
 		catch (e) {
-			this.logger.error(e.name + e.message);
+			this.logger.error("handleSearchMatch: " + e.name + " " + e.message);
 			client.disconnect(true);
 		}
 	}
@@ -35,7 +35,7 @@ export class MatchmakingGateway implements OnGatewayConnection, OnGatewayDisconn
 	@SubscribeMessage('cancel')
 	handleCancelMatch(@ConnectedSocket() client: Socket, @MessageBody() payload : PendingClient) {
 		try { this.gameService.unregisterPending(client); }
-		catch (e) { this.logger.error(e.name + e.message); }
+		catch (e) { this.logger.error("handleCancelMatch: " + e.name + " " + e.message); }
 	}
 
 }

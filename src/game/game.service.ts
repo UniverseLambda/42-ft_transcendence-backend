@@ -142,10 +142,10 @@ export function ExceptionGameSession (message : string) {
 export class GameService {
 	private readonly logger : Logger = new Logger(GameService.name);
 
-	private clientList : Map<string, Client>;
-	private clientIDList : Map<number, Client>;
-	private pendingList : Map<string, Client>;
-	private gameList : Map<number, GameSession>;
+	private clientList : Map<string, Client> = new Map();
+	private clientIDList : Map<number, Client> = new Map();
+	private pendingList : Map<string, Client> = new Map();
+	private gameList : Map<number, GameSession> = new Map();
 
 	/////////////////////////////////
 	// REMOVE IT WHEN OPERATIONNAL //
