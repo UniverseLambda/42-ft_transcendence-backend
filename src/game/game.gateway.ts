@@ -1,12 +1,12 @@
 import { SubscribeMessage, WebSocketGateway, MessageBody, OnGatewayConnection, OnGatewayDisconnect, ConnectedSocket } from '@nestjs/websockets';
 import { Logger } from '@nestjs/common';
 import { Socket } from "socket.io";
-import { GameService, GameSession } from "./game.service";
-import { AppService, ClientState } from "src/app.service";
+import { GameService } from "./game.service";
+import { AppService } from "src/app.service";
 // import { EngineService } from "src/game/engine.service";
 
 import * as THREE from 'three';
-import { cli } from 'webpack';
+// import { cli } from 'webpack';
 
 @WebSocketGateway({ cors: { origin: "http://localhost:4200" }, namespace: "game" })
 export class GameGateway implements OnGatewayConnection, OnGatewayDisconnect {
@@ -15,23 +15,23 @@ export class GameGateway implements OnGatewayConnection, OnGatewayDisconnect {
   private logger: Logger = new Logger('GameGateway');
 
 	async handleConnection(client: Socket, ...args: any[]) {
-		// await this.chatService.registerConnection(this.appService, client);
-		this.logger.log('CONNECTION : ', client.id);
-		if (!await this.gameService.registerClient(this.appService, client)) {
+		try { await this.gameService.registerClient(this.appService, client); }
+		catch (e) {
+			this.logger.error(e.name + e.message);
 			client.disconnect(true);
-			return false;
 		}
 	}
 
 	handleDisconnect(client: Socket) {
-		this.logger.log('DISCONNECTION : ', client.id);
-		this.gameService.unregisterClient(client);
+		try { this.gameService.unregisterClient(client); }
+		catch (e) { this.logger.error(e.name + e.message); }
 	}
 
 	// Need implementation client side
 	@SubscribeMessage('ready')
 	handleReady(@ConnectedSocket() client : Socket) {
-		this.gameService.readyToStart(client);
+		try {this.gameService.readyToStart(client);}
+		catch (e) { this.logger.error(e.name + e.message); }
 	}
 
 	@SubscribeMessage('throwBall')
@@ -45,12 +45,6 @@ export class GameGateway implements OnGatewayConnection, OnGatewayDisconnect {
 		this.gameService.updateBallPosition(client, payload);
 	}
 
-	// TO DO :
-	// - Define which player send that
-	// - Control the position
-	// - Communicate to the other player
-	// - update state
-	// - ASYNC
 	@SubscribeMessage('playerPosition')
 	handlePlayerPosition(@ConnectedSocket() client: any, @MessageBody() payload: THREE.Vector3) {
 		this.gameService.updatePlayer(client, payload);
