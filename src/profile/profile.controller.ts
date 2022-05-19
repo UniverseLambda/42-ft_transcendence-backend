@@ -1,6 +1,6 @@
 import { Body, Controller, Get, Logger, Param, Post, Req, Res, UploadedFile, UseInterceptors } from "@nestjs/common";
 import { Request, Response } from "express";
-import { AppService } from "src/app.service";
+import { AppService, ClientState } from "src/app.service";
 import * as fs from 'fs';
 import { FileInterceptor } from "@nestjs/platform-express";
 import { diskStorage } from "multer";
@@ -174,6 +174,8 @@ export class ProfileController {
 		// versus, score, status
 		let sess = await this.appService.getSessionData(req);
 
+		// TODO: getMatchHistory: attach data to database
+
 		return [
 			{
 				versus: "La-M",
@@ -191,6 +193,39 @@ export class ProfileController {
 				status: "Win (chatteux vas)"
 			},
 		];
+	}
+
+	@Post("get_user_info")
+	async getUserInfo(@Req() req: Request, @Res() res: Response, @Body("id") idStr?: string) {
+		let sess = await this.appService.getSessionData(req);
+		let id: number;
+
+		if (!idStr) {
+			res.status(400).end();
+			return;
+		}
+		
+		id = Number.parseInt(idStr);
+		
+		if (Number.isNaN(id) || !Number.isSafeInteger(id) || id <= 0) {
+			res.status(404).end();
+			return;
+		}
+
+		let client: ClientState = await this.appService.getClientState(id);
+
+		let data: any = {
+			login: client.login,
+			displayName: client.displayName,
+			imageUrl: this.appService.getAvatarUrl(client),
+			userStatus: client.userStatus,
+		}
+
+		if (client.getId() === sess.getId()) {
+			data.requires2FA = (client.totpSecret !== undefined);
+		}
+
+		return res.json();
 	}
 
 	@Post("activate_2fa")
