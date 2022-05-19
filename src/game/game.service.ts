@@ -31,8 +31,8 @@ export class Client {
 		private map : string,
 		private difficulty : number) {}
 
-	sendMessage(id : string, payload : any) {
-		this.socket.emit(id, payload);
+	sendMessage(event : string, payload : any) {
+		this.socket.emit(event, payload);
 	}
 
 	public get isInGame() : boolean { return this.inGame; }
@@ -55,8 +55,8 @@ export class Client {
 	public get getId() : number { return this.state.getId(); }
 
 	public disconnect() {
-		this.socket.disconnect();
 		Logger.log(`Client ${this.socket.id} disconnected`);
+		this.socket.disconnect();
 	}
 }
 
@@ -235,10 +235,6 @@ export class GameService {
 
 		var newGame = new GameSession(player1, player2);
 		this.gameList.set(newGame.getId, newGame);
-		if (player1.getSocket.connected)
-			player1.disconnect();
-		if (player2.getSocket.connected)
-			player2.disconnect();
 	}
 
 	unregisterPending(socket : Socket) {
