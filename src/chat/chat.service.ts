@@ -529,7 +529,7 @@ export class ChatService {
 		let room: ChatRoom;
 
 		if (!isValidRoomId(payload.roomId) || payload.roomId === GENERAL_ROOM_ID) {
-			this.logger.error(`joinRoom: invalid roomId value ${payload.roomId}`);
+			this.logger.error(`joinRoom: invalid roomId value \`${payload.roomId}\``);
 			socket.emit("joinRoomError", makeError(ChatResult.InvalidValue));
 			return;
 		}
@@ -538,7 +538,12 @@ export class ChatService {
 
 		if (room.hasPassword()) {
 			if (typeof payload.password !== "string" || payload.password.length === 0) {
-				this.logger.error(`joinRoom: invalid password value ${payload.roomId}`);
+				this.logger.error(`joinRoom: invalid password value \`${payload.password}\``);
+
+				if (room.isPrivate() && payload.toFind) {
+					socket.emit("newRoom", {roomId: room.roomId, name: room.name });
+				}
+
 				socket.emit("joinRoomError", makeError(ChatResult.PasswordRequired));
 				return;
 			}
@@ -820,8 +825,8 @@ function makeError(error: ChatResult): any {
 	};
 }
 
-function isValidRoomId(number: unknown, acceptGeneral: boolean = false): boolean {
-	return typeof number === "number" && Number.isSafeInteger(number) && (number < 0 || (number == 0 && acceptGeneral));
+function isValidRoomId(number: unknown): boolean {
+	return typeof number === "number" && Number.isSafeInteger(number) && number < 0;
 }
 
 function isValidUserId(number: unknown): boolean {

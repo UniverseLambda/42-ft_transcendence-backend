@@ -37,11 +37,11 @@ export class GameGateway implements OnGatewayConnection, OnGatewayDisconnect {
 		this.gameService.throwBall(client);
 	}
 
-	@SubscribeMessage('ballClient')
-	handleBallPosition(@ConnectedSocket() client: Socket, @MessageBody() payload : THREE.Vector3) {
-		//to launch job :
-		this.gameService.updateBallPosition(client, payload);
-	}
+	// @SubscribeMessage('ballClient')
+	// handleBallPosition(@ConnectedSocket() client: Socket, @MessageBody() payload : THREE.Vector3) {
+	// 	//to launch job :
+	// 	this.gameService.updateBallPosition(client, payload);
+	// }
 
 	@SubscribeMessage('playerPosition')
 	handlePlayerPosition(@ConnectedSocket() client: any, @MessageBody() payload: THREE.Vector3) {

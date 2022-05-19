@@ -2,6 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { Socket } from 'socket.io'
 import { AppService, ClientState } from 'src/app.service';
 import { parse } from "cookie";
+import * as path from "path";
 // import { game } from "src/game/game.server"
 // import { shape } from "src/game/game.shape"
 // import { logic } from "src/game/game.logic"
@@ -13,6 +14,8 @@ import { parse } from "cookie";
 
 import * as THREE from 'three';
 // import { cli } from 'webpack';
+
+import { Worker } from "worker_threads";
 
 export class Position { constructor(public posx : number, public posy : number, public posz : number) {}; }
 export class Players { constructor(public p1 : string, public p2 : string) {} }
@@ -150,10 +153,17 @@ export function ExceptionGameSession (message : string) {
 export class GameService {
 	private logger : Logger = new Logger(GameService.name);
 
+	private worker: Worker;
+
 	private clientList : Map<string, Client> = new Map();
 	private clientIDList : Map<number, Client> = new Map();
 	private pendingList : Map<string, Client> = new Map();
 	private gameList : Map<number, GameSession> = new Map();
+
+
+	constructor() {
+		this.worker = new Worker(`${path.dirname(__filename)}/game.worker.js`);
+	}
 
 	/////////////////////////////////
 	// REMOVE IT WHEN OPERATIONNAL //
