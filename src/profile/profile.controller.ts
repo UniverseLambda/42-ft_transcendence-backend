@@ -146,14 +146,14 @@ export class ProfileController {
 
 		return [
 			{
-				id: 50,
-				login: "YOLO",
+				id: 78541,
+				login: "sbaranes",
 				level: 50,
 				rank: "ZEMASTER",
 				userStatus: "Offline",
 			},
 			{
-				id: 10,
+				id: 77068,
 				login: "clsaad",
 				level: 50,
 				rank: "N00b",
@@ -204,9 +204,9 @@ export class ProfileController {
 			res.status(400).end();
 			return;
 		}
-		
+
 		id = Number.parseInt(idStr);
-		
+
 		if (Number.isNaN(id) || !Number.isSafeInteger(id) || id <= 0) {
 			res.status(404).end();
 			return;
@@ -215,6 +215,7 @@ export class ProfileController {
 		let client: ClientState = await this.appService.getClientState(id);
 
 		let data: any = {
+			id: client.getId(),
 			login: client.login,
 			displayName: client.displayName,
 			imageUrl: this.appService.getAvatarUrl(client),

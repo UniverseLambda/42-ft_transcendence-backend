@@ -36,6 +36,7 @@ export class AuthState {
 export class ClientState {
   public totpSecret?: OAuth.TOTP = undefined;
   public totpInPreparation: boolean = false;
+  public socketCount: number = 0;
 
   constructor(
     private id: number,
@@ -74,7 +75,7 @@ export class AppService {
       .setProtectedHeader({alg: JWT_ALG})
       .setIssuedAt()
       .setIssuer(JWT_ISSUER)
-      .setExpirationTime("2h")
+      // .setExpirationTime("2h")
       .sign(this.secret);
 
       return token.toString();
@@ -340,5 +341,20 @@ export class AppService {
   ensureFileOps(p: string): boolean {
     fs.mkdirSync(path.dirname(p), {recursive: true});
     return true;
+  }
+
+  socketConnected(id: number) {
+    this.getClientState(id).socketCount += 1;
+  }
+
+  socketDisconnected(id: number) {
+    let client: ClientState = this.getClientState(id);
+
+    client.socketCount -= 1;
+
+    if (client.socketCount === 0) {
+      // TODO: socketDisconnected: flush data to database
+      this.userMap.delete(id);
+    }
   }
 }

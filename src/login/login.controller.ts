@@ -12,14 +12,14 @@ export class LoginController {
 	@Get('redir_42api')
 	async redirApi42(@Req() request: Request, @Res() response: Response): Promise<any> {
 		let cookie = request.cookies[this.appService.getSessionCookieName()];
-		let sess = undefined;
+		let sess: AuthState = undefined;
 
 		if (cookie) {
 			sess = await this.appService.getTokenData(cookie);
 		}
 
 		// TODO: Session duplication
-		if (sess && sess.authStatus && sess.authStatus === AuthStatus.Accepted) {
+		if (sess && sess.authStatus && sess.authStatus === AuthStatus.Accepted && this.appService.getClientState(sess.id) !== undefined) {
 			response.status(204).end();
 			return;
 		}
@@ -56,6 +56,7 @@ export class LoginController {
 			if (authStatus === AuthStatus.Accepted) {
 				let info: ClientState = await this.appService.getSessionDataToken(token);
 
+				data.id = info.getId();
 				data.login = info.login;
 				data.displayName = info.displayName;
 				data.imageUrl = this.appService.getAvatarUrl(info);

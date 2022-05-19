@@ -97,4 +97,11 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
       this.chatService.setAdmin(client, payload);
     } catch (reason) { this.logger.error(`setAdmin: exception thrown: ${reason}`); }
   }
+
+  @SubscribeMessage("openConv")
+  openConv(@ConnectedSocket() client: Socket, @MessageBody() payload: any) {
+    try {
+      this.chatService.openConv(client, payload);
+    } catch (reason) { this.logger.error(`openConv: exception thrown: ${reason}`); }
+  }
 }

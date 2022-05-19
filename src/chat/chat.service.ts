@@ -53,7 +53,7 @@ class ChatClient implements MessageReceipient {
 
 	sendMessage(sender: ChatClient, message: string, where?: number): ChatResult {
 		if (where === undefined) {
-			where = this.getId();
+			where = sender.getId();
 		}
 
 		if (this.blockList.has(sender.getId())) {
@@ -67,6 +67,10 @@ class ChatClient implements MessageReceipient {
 			login: sender.state.login
 		});
 		return ChatResult.Ok;
+	}
+
+	hasBlocked(client: ChatClient): boolean {
+		return this.blockList.has(client.getId());
 	}
 }
 
@@ -326,6 +330,8 @@ export class ChatService {
 			chatClient.socket.emit("newRoom", {roomId: r.getId(), name: r.name});
 		}
 
+		appService.socketConnected(client.getId());
+
 		return true;
 	}
 
@@ -340,7 +346,11 @@ export class ChatService {
 		this.clients.delete(socket.id);
 		this.clientsSID.delete(clientState.getId());
 
+		appService.socketDisconnected(clientState.getId());
+
 		client.disconnected();
+
+		this.logger.debug(`unregisterConnection: user ${client.getId()} (socket: ${socket.id}) disconnected`);
 	}
 
 	onMessage(socket: Socket, payload: any): boolean {
@@ -449,9 +459,9 @@ export class ChatService {
 
 		if (type !== "private") {
 			for (let c of this.clients.values()) {
-				if (c.socket === socket) continue;
+				if (c.getId() === client.getId()) continue;
 
-				c.socket.send("newRoom", {roomId: roomId, name: name});
+				c.socket.emit("newRoom", {roomId: roomId, name: name});
 			}
 		}
 
@@ -625,18 +635,18 @@ export class ChatService {
 	}
 
 	kickUser(socket: Socket, payload: any) {
-		let client: ChatClient = this.checkRegistration(socket, "kickUserError");
+		let client: ChatClient = this.checkRegistration(socket, "roomError");
 		let room: ChatRoom;
 		let target: ChatClient;
 
 		if (!isValidRoomId(payload.roomId) || payload.roomId === GENERAL_ROOM_ID) {
-			this.logger.error(`setBan: invalid roomId value ${payload.roomId}`);
+			this.logger.error(`kickUser: invalid roomId value ${payload.roomId}`);
 			socket.emit("roomError", makeError(ChatResult.InvalidValue));
 			return;
 		}
 
 		if (!isValidUserId(payload.targetId)) {
-			this.logger.error(`setBan: invalid targetId value ${payload.targetId}`);
+			this.logger.error(`kickUser: invalid targetId value ${payload.targetId}`);
 			socket.emit("roomError", makeError(ChatResult.InvalidValue));
 			return;
 		}
@@ -720,6 +730,28 @@ export class ChatService {
 		}
 	}
 
+	openConv(socket: Socket, payload: any) {
+		let client: ChatClient = this.checkRegistration(socket, "openConvError");
+		let target: ChatClient;
+
+		this.logger.debug("OPENCOOOOOOOOOONV");
+
+		if (!isValidUserId(payload.targetId)) {
+			this.logger.error(`openConv: invalid targetId value ${payload.targetId}`);
+			socket.emit("openConvError", makeError(ChatResult.InvalidValue));
+			return;
+		}
+
+		target = this.checkUser(socket, payload.targetId, "openConvError");
+
+		if (target.hasBlocked(client)) {
+			this.logger.error(`openConv: user ${payload.targetId} has blocked ${client.getId()}`);
+			socket.emit("openConvError", makeError(ChatResult.Blocked));
+			return;
+		}
+
+		socket.emit("roomJoined", {roomId: target.getId(), name: target.state.login});
+	}
 
 
 	checkRegistration(socket: Socket, errorEvent?: string): ChatClient {
@@ -754,7 +786,7 @@ export class ChatService {
 		if (!client && errorEvent !== undefined) {
 			socket.emit(errorEvent, makeError(ChatResult.TargetNotFound));
 
-			throw `room ${socket.id} not found`;
+			throw `user ${userId} not found`;
 		}
 
 		return client;
@@ -763,20 +795,20 @@ export class ChatService {
 
 function getErrorMessage(res: ChatResult): string {
 	switch (res) {
-		case ChatResult.Ok: return "Noice :)";
-		case ChatResult.NotRegistered: return "client not registered";
-		case ChatResult.TargetNotFound: return "target not found";
-		case ChatResult.InvalidValue: return "invalid value";
-		case ChatResult.AlreadyInRoom: return "client already in room";
-		case ChatResult.PasswordRequired: return "password required";
-		case ChatResult.WrongPassword: return "wrong password";
-		case ChatResult.NotInRoom: return "client not in the room";
-		case ChatResult.TargetNotInRoom: return "target client not in the room";
-		case ChatResult.NotAdmin: return "client not admin of the room";
-		case ChatResult.Blocked: return "client blocked by target";
-		case ChatResult.Muted: return "you've been muted";
-		case ChatResult.Banned: return "you've been banned from this channel";
-		case ChatResult.LastAdmin: return "you're the last admin, you cannot perform this action";
+		case ChatResult.Ok:					return "Noice :)";
+		case ChatResult.NotRegistered:		return "client not registered";
+		case ChatResult.TargetNotFound:		return "target not found";
+		case ChatResult.InvalidValue:		return "invalid value";
+		case ChatResult.AlreadyInRoom:		return "client already in room";
+		case ChatResult.PasswordRequired:	return "password required";
+		case ChatResult.WrongPassword:		return "wrong password";
+		case ChatResult.NotInRoom:			return "client not in the room";
+		case ChatResult.TargetNotInRoom:	return "target client not in the room";
+		case ChatResult.NotAdmin:			return "client not admin of the room";
+		case ChatResult.Blocked:			return "client blocked by target";
+		case ChatResult.Muted:				return "you've been muted";
+		case ChatResult.Banned:				return "you've been banned from this channel";
+		case ChatResult.LastAdmin:			return "you're the last admin, you cannot perform this action";
 		default: return "unknown error";
 	}
 }
