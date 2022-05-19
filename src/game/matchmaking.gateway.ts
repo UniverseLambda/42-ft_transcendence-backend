@@ -12,7 +12,10 @@ export class MatchmakingGateway implements OnGatewayConnection, OnGatewayDisconn
 	async handleConnection(client: Socket, ...args: any[]) {
 		this.logger.log('front connected : ', client.id);
 		try { this.gameService.registerMatchmaking(this.appService, client); }
-		catch (e) { this.logger.log(e.name + e.message); }
+		catch (e) {
+			this.logger.log(e.name + e.message);
+			client.disconnect();
+		}
 	}
 
 	handleDisconnect(client: Socket) {

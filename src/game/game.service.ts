@@ -26,6 +26,7 @@ export class Client {
 	private isReady : boolean = false;
 	private gameId : number;
 	constructor(private socket : Socket,
+		private authentified : boolean,
 		private state : ClientState,
 		private map : string,
 		private difficulty : number) {}
@@ -36,6 +37,8 @@ export class Client {
 
 	public get isInGame() : boolean { return this.inGame; }
 	public set isInGame(status : boolean) { this.inGame = status; }
+
+	public get isAuthentified() : boolean { return this.authentified; }
 
 	public get getGameId() : number { return this.gameId; }
 	public set getGameId(id : number) { this.gameId = id; }
@@ -152,25 +155,27 @@ export class GameService {
 		try {
 			var cookie : string = parse(socket.handshake.headers.cookie)[appService.getSessionCookieName()];
 			var state = await appService.getSessionDataToken(cookie);
-			var tmpClient = new Client(socket, state, '', 0);
 		}
 		catch {
 			this.logger.error(`registerMatchmaking: cannot connect client ${socket.id} !`)
-			socket.emit('connection failure', []);
 			throw ExceptionSocketConnection('registerMatchmaking');
 		}
+		// If already registered, recreate it in Client List
+		// and update his socket.
+		var clientSession : Client;
 		if (this.clientIDList.has(state.getId())) {
-			this.logger.error(`registerMatchmaking: client ${state.getId()} already logged.`)
-			socket.emit('connectionFailure', 'already logged');
-			throw ExceptionSocketConnection('registerMatchmaking');
+			clientSession = this.clientIDList.get(state.getId());
+			clientSession.getSocket = socket;
+			this.clientList.set(socket.id, clientSession);
 		}
-		Logger.log(`New client -${socket.id}- is looking for a match.`);
-		this.clientList.set(socket.id, tmpClient);
-		this.clientIDList.set(state.getId(), tmpClient);
-		this.pendingList.set(socket.id, tmpClient);
+		else {
+			clientSession = new Client(socket, true, state, '', 0);
+			Logger.log(`New client -${socket.id}- is looking for a match.`);
+			this.clientIDList.set(state.getId(), clientSession);
+		}
+		this.clientList.set(socket.id, clientSession);
 		if (!socket.connected)
 			throw ExceptionSocketConnection('registerFront');
-		socket.emit('connected', []);
 		return true;
 	}
 
@@ -204,11 +209,16 @@ export class GameService {
 	}
 
 	unregisterPending(client : Socket) {
-		if (!this.pendingList.has(client.id) || !this.clientList.has(client.id))
-			throw ExceptionUser('unregisterPending');
-		client.disconnect();
+		if (!this.clientList.has(client.id))
+			throw ExceptionUser('unregisterPending : disconnect unregistered client');
+		var clientSession = this.clientList.get(client.id);
+		if (client.connected)
+			client.disconnect();
+		if (!clientSession.isAuthentified)
+			this.clientIDList.delete(clientSession.getId);
+		if (this.pendingList.has(client.id))
+			this.pendingList.delete(client.id);
 		this.clientList.delete(client.id);
-		this.pendingList.delete(client.id);
 	}
 	unregisterAllPending() {
 		this.pendingList.forEach(element => {
@@ -231,7 +241,7 @@ export class GameService {
 			var state = await appService.getSessionDataToken(cookie);
 			/////////////////////////////////
 			// REMOVE IT WHEN OPERATIONNAL //
-			var client = new Client(socket, state, '', 1); // 1 is default
+			var client = new Client(socket, true, state, '', 1); // 1 is default
 			/////////////////////////////////
 		}
 		catch {
@@ -280,14 +290,16 @@ export class GameService {
 			throw ExceptionUser('unregisterClient');
 		// First disconnect the socket, share between lists.
 		var clientData = this.clientList.get(client.id);
-		clientData.disconnect();
-		if (!clientData.isInGame)
+		if (client.connected)
+			clientData.disconnect();
+		if (!clientData.isAuthentified || !clientData.isInGame)
 			this.clientIDList.delete(this.clientList.get(client.id).getId);
 		this.clientList.delete(client.id);
 	}
 	unregisterAllClient() {
 		this.clientList.forEach(element => {
-			element.disconnect();
+			if (element.getSocket.connected)
+				element.disconnect();
 		});
 		this.clientList.clear();
 		this.clientIDList.clear();
