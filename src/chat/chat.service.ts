@@ -2,7 +2,9 @@ import { Injectable, Logger } from '@nestjs/common';
 import { AppService, ClientState } from 'src/app.service';
 import { Socket } from 'socket.io';
 import { parse } from "cookie";
-import { ok } from 'assert';
+
+const GENERAL_ROOM_NAME: string = "World General";
+const GENERAL_ROOM_ID: number = -1;
 
 interface MessageReceipient {
 	sendMessage(sender: ChatClient, message: string, roomId?: number): ChatResult;
@@ -180,7 +182,7 @@ export class ChatService {
 	private roomId: number = 2;
 
 	constructor() {
-		this.rooms.set(-1, new ChatRoom(-1, "General", null, false));
+		this.rooms.set(GENERAL_ROOM_ID, new ChatRoom(GENERAL_ROOM_ID, GENERAL_ROOM_NAME, null, false));
 	}
 
 	async registerConnection(appService: AppService, socket: Socket): Promise<boolean> {
@@ -206,7 +208,7 @@ export class ChatService {
 
 		this.rooms.get(-1).addUser(chatClient);
 
-		this.logger.debug(`registerConnection: user ${client.getId()} joined the chat!`);
+		this.logger.debug(`registerConnection: user ${client.getId()} (socket: ${socket.id}) joined the chat!`);
 
 		return true;
 	}
@@ -288,7 +290,7 @@ export class ChatService {
 		let type: string;
 		let password: string;
 
-		if (!payload.name || typeof payload.name !== "string" || payload.name === "General") {
+		if (!payload.name || typeof payload.name !== "string" || payload.name === GENERAL_ROOM_NAME) {
 			this.logger.error(`createRoom: wrong value for name: ${payload.name}`);
 			socket.emit("createRoomResult", makeError(ChatResult.InvalidValue));
 			return false;
@@ -342,7 +344,7 @@ export class ChatService {
 		let roomId: number;
 		let room: ChatRoom;
 
-		if (typeof payload.roomId !== "number" || payload.roomId >= 0) {
+		if (typeof payload.roomId !== "number" || payload.roomId >= 0 || payload.roomId === GENERAL_ROOM_ID) {
 			this.logger.error(`setRoomPassword: invalid roomId value ${payload.roomId}`);
 			socket.emit("setRoomPasswordResult", makeError(ChatResult.InvalidValue));
 			return false;
@@ -374,7 +376,7 @@ export class ChatService {
 		let roomId: number;
 		let room: ChatRoom;
 
-		if (typeof payload.roomId !== "number" || payload.roomId >= 0) {
+		if (typeof payload.roomId !== "number" || payload.roomId >= 0 || payload.roomId === GENERAL_ROOM_ID) {
 			this.logger.error(`joinRoomError: invalid roomId value ${payload.roomId}`);
 			socket.emit("joinRoomError", makeError(ChatResult.InvalidValue));
 			return;
