@@ -3,10 +3,8 @@ import { Logger } from '@nestjs/common';
 import { Socket } from "socket.io";
 import { GameService } from "./game.service";
 import { AppService } from "src/app.service";
-// import { EngineService } from "src/game/engine.service";
 
 import * as THREE from 'three';
-// import { cli } from 'webpack';
 
 @WebSocketGateway({ cors: { origin: "http://localhost:4200" }, namespace: "game" })
 export class GameGateway implements OnGatewayConnection, OnGatewayDisconnect {
@@ -17,21 +15,21 @@ export class GameGateway implements OnGatewayConnection, OnGatewayDisconnect {
 	async handleConnection(client: Socket, ...args: any[]) {
 		try { await this.gameService.registerClient(this.appService, client); }
 		catch (e) {
-			this.logger.error(e.name + e.message);
+			this.logger.error("handleConnection: " + e.name + " " + e.message);
 			client.disconnect(true);
 		}
 	}
 
 	handleDisconnect(client: Socket) {
 		try { this.gameService.unregisterClient(client); }
-		catch (e) { this.logger.error(e.name + e.message); }
+		catch (e) { this.logger.error("handleDisconnect: " + e.name + " " + e.message); }
 	}
 
 	// Need implementation client side
 	@SubscribeMessage('ready')
 	handleReady(@ConnectedSocket() client : Socket) {
 		try {this.gameService.readyToStart(client);}
-		catch (e) { this.logger.error(e.name + e.message); }
+		catch (e) { this.logger.error("handleReady: " + e.name + " " + e.message); }
 	}
 
 	@SubscribeMessage('throwBall')

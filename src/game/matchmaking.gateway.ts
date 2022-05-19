@@ -2,7 +2,7 @@ import { SubscribeMessage, WebSocketGateway, MessageBody, OnGatewayConnection, O
 import { Logger } from '@nestjs/common';
 import { Socket } from "socket.io";
 import { GameService, PendingClient } from "./game.service";
-import { AppService, ClientState } from "src/app.service";
+import { AppService } from "src/app.service";
 
 @WebSocketGateway({ cors: { origin: "http://localhost:4200" }, namespace: "matchmaking" })
 export class MatchmakingGateway implements OnGatewayConnection, OnGatewayDisconnect {
