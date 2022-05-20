@@ -435,7 +435,7 @@ export class GameService {
 		return this.gameList.get(this.clientList.get(socketId).getGameId);
 	}
 
-	readyToStart(client : Socket) {
+	readyToStart(client : Socket, appService : AppService) {
 		if (!this.clientList.has(client.id) || !this.clientIDList.has(this.clientList.get(client.id).getId)) {
 			throw ExceptionUserNotRegister(`readyToStart`);
 		}
@@ -446,11 +446,13 @@ export class GameService {
 			gameSession.getReady[0] = true
 			if (gameSession.getPlayer1.isInGame || gameSession.getReady[1] === true)
 				this.launchGame(gameSession);
+				appService.inGame(gameSession.getPlayer1.getId);
 		}
 		else if (!gameSession.isPlayer1(client)) {
 			gameSession.getReady[1] = true
 			if (gameSession.getPlayer2.isInGame || gameSession.getReady[0] === true)
 				this.launchGame(gameSession);
+				appService.inGame(gameSession.getPlayer2.getId);
 		}
 	}
 
@@ -459,7 +461,6 @@ export class GameService {
 
 		console.log(`STARTGAME: ${gameSession.getId}`);
 
-		this.emitMessage("startGame", {id: gameSession.getId});
 	}
 
 	// Socket is not checked for optimisation purpose
@@ -467,8 +468,6 @@ export class GameService {
 		var gameSession = this.getGame(client.id);
 
 		console.log(`gameSesion: ${gameSession} (${gameSession.getId})`);
-
-		this.emitMessage("throwBall", {id: gameSession.getId});
 
 		this.logger.log('[GAME] ball thrown');
 	}
@@ -492,16 +491,16 @@ export class GameService {
 		var playerIndex = (gameSession.isPlayer1(client)) ? 0 : 1;
 
 		// this.worker.emit("setPlayerPos", gameSession.getId, playerIndex, position);
-		this.emitMessage("setPlayerPos", {id: gameSession.getId, player: playerIndex, pos: position})
 	}
 
 	// TODO End game ?
-	endGame(client : Socket) {
+	endGame(client : Socket, appService : AppService) {
 		var getGame = this.getGame(client.id);
 		getGame.getPlayer1.isInGame = false;
 		getGame.getPlayer2.isInGame = false;
 
-		this.emitMessage("endGame", {id: getGame.getId});
+		appService.gameQuitted(getGame.getPlayer1.getId);
+		appService.gameQuitted(getGame.getPlayer2.getId);
 	}
 
 	/************************/
@@ -552,7 +551,4 @@ export class GameService {
 		}
 	}
 
-	emitMessage(event: string, data: any) {
-		this.worker.postMessage({event: event, data: data});
-	}
 }
