@@ -665,6 +665,7 @@ export class ChatService {
 		}
 
 		room = this.checkRoom(socket, payload.roomId, "roomError");
+		target = this.checkUser(socket, payload.targetId, "roomError");
 
 		let result: ChatResult = room.kickUser(client, target);
 

@@ -7,11 +7,11 @@ const MAP_WIDTH: number = 300;
 const MAP_HEIGHT: number = 150;
 const PLAYER_WIDTH: number = 5;
 const PLAYER_HEIGHT: number = 30;
-const BALL_RADIUS: number = 3;
+const BALL_RADIUS: number = 1;
 const BALL_SPEED: number = 10;
 
-const BALL_INIT_VELX: number = 0.0;
-const BALL_INIT_VELY: number = 1.0;
+const BALL_INIT_VELX: number = 0.85;
+const BALL_INIT_VELY: number = 0.15;
 
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 const logger = new Logger("GameWorker");
@@ -83,18 +83,15 @@ async function roundUpdate(id: number, game: Data) {
 		game.ballPosX += game.ballVelX * BALL_SPEED * (delta / 1000.0);
 		game.ballPosY += game.ballVelY * BALL_SPEED * (delta / 1000.0);
 
-		logger.error(`Y: ${game.ballPosY} ()`);
+		let highY = game.ballPosY + (BALL_RADIUS / 2);
+		let lowY = game.ballPosY - (BALL_RADIUS / 2);
 
-		if ((game.ballPosY + (BALL_RADIUS / 2)) >= MAP_HEIGHT / 2) {
+		if (highY >= (MAP_HEIGHT / 2)) {
 			game.ballVelY *= -1;
-			game.ballPosY = (MAP_HEIGHT / 2) - (BALL_RADIUS / 2);
-			logger.error(`SWITCH COLLIDE Y 0 vel: ${game.ballVelY}`);
-		}
-
-		if ((game.ballPosY - (BALL_RADIUS / 2)) <= MAP_HEIGHT / 2) {
+			game.ballPosY = +((MAP_HEIGHT / 2) - (BALL_RADIUS));
+		} else if (lowY <= -(MAP_HEIGHT / 2)) {
 			game.ballVelY *= -1;
-			game.ballPosY = -((MAP_HEIGHT / 2) - (BALL_RADIUS / 2));
-			logger.error(`SWITCH COLLIDE Y 1 vel: ${game.ballVelY}`);
+			game.ballPosY = -((MAP_HEIGHT / 2) - (BALL_RADIUS));
 		}
 
 		if (Date.now() - lastUpdate >= SYNC_DELAY) {
