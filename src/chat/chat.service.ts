@@ -1,5 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { AppService, ClientState } from 'src/app.service';
+import { AppService, ClientState, UserStatus } from 'src/app.service';
 import { Socket } from 'socket.io';
 import { parse } from "cookie";
 
@@ -12,7 +12,7 @@ interface MessageReceipient {
 }
 
 class ChatClient implements MessageReceipient {
-	private rooms: Map<number, ChatRoom> = new Map();
+	public rooms: Map<number, ChatRoom> = new Map();
 	private blockList: Set<number> = new Set();
 
 	constructor(
@@ -33,6 +33,10 @@ class ChatClient implements MessageReceipient {
 		this.socket.emit("roomLeaved", {
 			roomId: room.getId(), isPublic: !room.isPrivate()
 		});
+	}
+
+	newRoom(room: ChatRoom) {
+		this.socket.emit("newRoom", {roomId: room.getId(), name: room.name});
 	}
 
 	disconnected() {
@@ -66,7 +70,7 @@ class ChatClient implements MessageReceipient {
 			senderId: sender.getId(),
 			message: message,
 			where: where,
-			login: sender.state.login
+			login: sender.state.profile.login
 		});
 		return ChatResult.Ok;
 	}
@@ -115,6 +119,9 @@ enum ChatResult {
 	Muted,
 	Banned,
 	LastAdmin,
+	GeneralRoom,
+	NotOnline,
+	InGame,
 }
 
 class ChatRoom implements MessageReceipient {
@@ -136,6 +143,17 @@ class ChatRoom implements MessageReceipient {
 		this.members.set(user.state.getId(), new ChatRoomClientData(user, isAdmin));
 
 		user.roomJoined(this);
+
+		return ChatResult.Ok;
+	}
+
+	addUserNoDispatch(user: ChatClient, isAdmin: boolean = false): ChatResult {
+		if (this.members.has(user.state.getId())) return ChatResult.AlreadyInRoom;
+		if (this.banList.has(user.state.getId())) return ChatResult.Banned;
+
+		this.members.set(user.state.getId(), new ChatRoomClientData(user, isAdmin));
+
+		user.roomJoined(this, true);
 
 		return ChatResult.Ok;
 	}
@@ -308,6 +326,10 @@ export class ChatService {
 		try {
 			const cookie: string = parse(socket.handshake.headers.cookie)[appService.getSessionCookieName()];
 			client = await appService.getSessionDataToken(cookie);
+			if (client === undefined) {
+				this.logger.error(`registerConnection: client not authed`);
+				return false;
+			}
 		} catch (reason) {
 			this.logger.error(`registerConnection: could not read get session data from cookie (${reason})`);
 			return false;
@@ -315,7 +337,7 @@ export class ChatService {
 
 		// Second case is VERY unlikely, but we're never too sure (it happened tho)
 		if (this.clientsSID.has(client.getId()) || this.clients.has(socket.id)) {
-			this.logger.error(`registerConnection: double chat opened for ${client.getId()} (${client.login})`);
+			this.logger.error(`registerConnection: double chat opened for ${client.getId()} (${client.profile.login})`);
 			return false;
 		}
 
@@ -323,16 +345,12 @@ export class ChatService {
 		let chatClient = new ChatClient(socket, client);
 		this.clients.set(socket.id, chatClient);
 
-		this.rooms.get(-1).addUser(chatClient);
+		this.rooms.get(-1).addUserNoDispatch(chatClient);
 
 		this.logger.debug(`registerConnection: user ${client.getId()} (socket: ${socket.id}) joined the chat!`);
 
 		// TODO: check for private rooms in which the user is (db)
-		for (let r of this.rooms.values()) {
-			if (r.isInRoom(chatClient) || r.isPrivate()) continue;
-
-			chatClient.socket.emit("newRoom", {roomId: r.getId(), name: r.name});
-		}
+		this.sendInitialInformation(socket, chatClient);
 
 		appService.socketConnected(client.getId());
 
@@ -469,6 +487,8 @@ export class ChatService {
 			}
 		}
 
+		// TODO: add room to database
+
 		return true;
 	}
 
@@ -476,25 +496,37 @@ export class ChatService {
 		let client: ChatClient = this.checkRegistration(socket, "leaveRoomError");
 		let room: ChatRoom;
 
-		if (!isValidRoomId(payload.roomId) || payload.roomId === GENERAL_ROOM_ID) {
+		if (!isValidRoomId(payload.roomId)) {
 			this.logger.error(`leaveRoom: invalid roomId value ${payload.roomId}`);
 			socket.emit("leaveRoomError", makeError(ChatResult.InvalidValue));
 			return;
 		}
 
-		room = this.checkRoom(socket, payload.roomId, "leaveRoomError");
+		if (payload.roomId === GENERAL_ROOM_ID) {
+			this.logger.error(`leaveRoom: invalid roomId value ${payload.roomId}`);
+			socket.emit("roomError", makeError(ChatResult.GeneralRoom, payload.roomId));
+		}
+
+		room = this.checkRoom(socket, payload.roomId, "roomError");
 
 		let result = room.removeUser(client);
 
 		if (result !== ChatResult.Ok) {
 			this.logger.error(`leaveRoom: could not leave room: ${ChatResult[result]}`);
-			socket.emit("leaveRoomError", makeError(result));
+			socket.emit("roomError", makeError(result, payload.roomId));
 			return;
 		}
 
-		if (room.userCount() === 0 && !room.isPrivate()) {
+		// TODO: remove user from the room in database
+
+		// Can't get here if World_General, checked before.
+		if (room.userCount() === 0) {
+			// TODO: remove room from database
+
 			this.rooms.delete(room.getId());
-			socket.emit("roomDeleted", {roomId: room.getId(), name: room.name});
+			if (!room.isPrivate()) {
+				socket.emit("roomDeleted", {roomId: room.getId(), name: room.name});
+			}
 		}
 	}
 
@@ -508,23 +540,29 @@ export class ChatService {
 			return false;
 		}
 
-		room = this.checkRoom(socket, payload.roomId, "setRoomPasswordResult");
+		if (payload.roomId === GENERAL_ROOM_ID) {
+			this.logger.error(`setRoomPassword: invalid roomId value ${payload.roomId}`);
+			socket.emit("roomError", makeError(ChatResult.GeneralRoom, payload.roomId));
+			return false;
+		}
+
+		room = this.checkRoom(socket, payload.roomId, "roomError");
 
 		if ((payload.password !== undefined
 			&& typeof payload.password !== "string")
 			|| (payload.password !== undefined && payload.password.length === 0)) {
 			this.logger.error(`setRoomPassword: invalid password value ${payload.password}`);
-			socket.emit("setRoomPasswordResult", makeError(ChatResult.InvalidValue));
+			socket.emit("roomError", makeError(ChatResult.InvalidValue, payload.roomId));
 			return false;
 		}
 
 		let result = room.setPassword(client, payload.password);
 
 		if (result === ChatResult.Ok) {
-			socket.emit("setRoomPasswordResult", {success: true});
+			socket.emit("roomError", {success: true});
 		} else {
-			this.logger.error(`setRoomPasswordResult: could not set password for room: ${ChatResult[result]}`);
-			socket.emit("setRoomPasswordResult", makeError(result));
+			this.logger.error(`roomError: could not set password for room: ${ChatResult[result]}`);
+			socket.emit("roomError", makeError(result, payload.roomId));
 			return false;
 		}
 
@@ -548,12 +586,14 @@ export class ChatService {
 				this.logger.error(`joinRoom: invalid password value \`${payload.password}\``);
 
 				if (room.isPrivate() && payload.toFind) {
-					socket.emit("newRoom", {roomId: room.roomId, name: room.name });
+					client.newRoom(room);
 				}
 
 				socket.emit("joinRoomError", makeError(ChatResult.PasswordRequired));
 				return;
 			}
+
+			// TODO: joinRoom: use DB to check password
 
 			if (!room.isGoodPassword(payload.password)) {
 				this.logger.error(`joinRoom: wrong password ${payload.roomId}`);
@@ -567,6 +607,7 @@ export class ChatService {
 		if (result !== ChatResult.Ok) {
 			socket.emit("joinRoomError", makeError(result));
 		} else {
+			// TODO: joinRoom: add user to room in db
 			this.logger.verbose(`joinRoom: user ${client.getId()} joined room ${payload.roomId}`);
 		}
 	}
@@ -583,6 +624,7 @@ export class ChatService {
 
 		target = this.checkUser(socket, payload.targetId, "blockUserError");
 
+		// TODO: blockUser: add user in the block list in DB
 		client.addBlocked(target);
 
 		socket.emit("userBlocked", {id: payload.targetId});
@@ -601,6 +643,7 @@ export class ChatService {
 		target = this.checkUser(socket, payload.targetId, "unblockUserError");
 
 		client.removeBlocked(target);
+		// TODO: unblockUser: remove user from the block list in DB
 		socket.emit("userUnblocked", {id: payload.targetId});
 	}
 
@@ -628,7 +671,7 @@ export class ChatService {
 		}
 
 		room = this.checkRoom(socket, payload.roomId, "roomError");
-		target = this.checkUser(socket, payload.targetId, "roomError");
+		target = this.checkUser(socket, payload.targetId, "roomError", room.getId());
 
 		let result: ChatResult;
 
@@ -639,10 +682,12 @@ export class ChatService {
 		}
 
 		if (result === ChatResult.Ok) {
+			// TODO: setBan: add/remove user from ban list in database
+
 			socket.emit("userBanned", {roomId: payload.roomId, targetId: payload.targetId});
 			this.logger.debug(`setBan: user ${target.getId()} banned from ${room.getId()} by ${client.getId()}`);
 		} else {
-			socket.emit("roomError", makeError(result));
+			socket.emit("roomError", makeError(result, room.getId()));
 			this.logger.error(`setBan: could not ban user ${target.getId()} from ${room.getId()} (issued by ${client.getId()}, reason: ${ChatResult[result]})`);
 		}
 	}
@@ -659,20 +704,23 @@ export class ChatService {
 		}
 
 		if (!isValidUserId(payload.targetId)) {
-			this.logger.error(`kickUser: invalid targetId value ${payload.targetId}`);
-			socket.emit("roomError", makeError(ChatResult.InvalidValue));
+			this.logger.error(`kickUser: invalid targetId value ${payload.targetId} (typeof: ${typeof payload.targetId})`);
+			socket.emit("roomError", makeError(ChatResult.InvalidValue, payload.roomId));
 			return;
 		}
 
 		room = this.checkRoom(socket, payload.roomId, "roomError");
-		target = this.checkUser(socket, payload.targetId, "roomError");
+		target = this.checkUser(socket, payload.targetId, "roomError", payload.roomId);
 
 		let result: ChatResult = room.kickUser(client, target);
 
 		if (result === ChatResult.Ok) {
+			this.logger.debug(`kickUser: user ${payload.targetId} kicked from ${payload.roomId} by ${client.getId()})`);
 			socket.emit("userKicked", {roomId: payload.roomId, targetId: payload.targetId});
+			// TODO: kickUser: add/remove user from ban list in database
 		} else {
-			socket.emit("roomError", makeError(result));
+			this.logger.error(`kickUser: could not kick ${payload.targetId} from ${payload.roomId} (reason: ${ChatResult[result]})`);
+			socket.emit("roomError", makeError(result, payload.roomId));
 		}
 	}
 
@@ -689,14 +737,14 @@ export class ChatService {
 
 		if (!isValidUserId(payload.targetId)) {
 			this.logger.error(`setMute: invalid targetId value ${payload.targetId}`);
-			socket.emit("roomError", makeError(ChatResult.InvalidValue));
+			socket.emit("roomError", makeError(ChatResult.InvalidValue, payload.roomId));
 			return;
 		}
 
 
 		if (typeof (payload.duration) !== "number" || !Number.isSafeInteger(payload.duration)) {
 			this.logger.error(`setMute: invalid duration value ${payload.duration}`);
-			socket.emit("roomError", makeError(ChatResult.InvalidValue));
+			socket.emit("roomError", makeError(ChatResult.InvalidValue, payload.roomId));
 			return;
 		}
 
@@ -710,12 +758,12 @@ export class ChatService {
 			socket.emit("userMuted", {roomId: payload.roomId, targetId: payload.targetId, duration: payload.duration});
 		} else {
 			this.logger.error(`setMute: could not mute user ${target.getId()} muted on channel ${room.roomId} for ${payload.duration} seconds (${ChatResult[result]}).`);
-			socket.emit("roomError", makeError(result));
+			socket.emit("roomError", makeError(result, payload.roomId));
 		}
 	}
 
 	setAdmin(socket: Socket, payload: any) {
-		let client: ChatClient = this.checkRegistration(socket, "setAdminError");
+		let client: ChatClient = this.checkRegistration(socket, "roomError");
 		let room: ChatRoom;
 		let target: ChatClient;
 
@@ -727,32 +775,32 @@ export class ChatService {
 
 		if (!isValidUserId(payload.targetId)) {
 			this.logger.error(`setAdmin: invalid targetId value ${payload.targetId}`);
-			socket.emit("roomError", makeError(ChatResult.InvalidValue));
+			socket.emit("roomError", makeError(ChatResult.InvalidValue, payload.roomId));
 			return;
 		}
 
 		if (typeof (payload.action) !== "boolean") {
 			this.logger.error(`setAdmin: invalid duration value ${payload.roomId}`);
-			socket.emit("roomError", makeError(ChatResult.InvalidValue));
+			socket.emit("roomError", makeError(ChatResult.InvalidValue, payload.roomId));
 			return;
 		}
 
-		room = this.checkRoom(socket, payload.roomId, "setAdminError");
+		room = this.checkRoom(socket, payload.roomId, "roomError");
+		target = this.checkUser(socket, payload.targetId, "roomError", payload.roomId);
 
 		let result: ChatResult = room.setAdmin(client, target, payload.action);
 
 		if (result === ChatResult.Ok) {
+			// TODO: setAdmin: add/remove from admin list in DB
 			socket.emit("setAdminResult", {roomId: payload.roomId, targetId: payload.targetId, action: payload.action});
 		} else {
-			socket.emit("roomError", makeError(result));
+			socket.emit("roomError", makeError(result, payload.roomId));
 		}
 	}
 
 	openConv(socket: Socket, payload: any) {
 		let client: ChatClient = this.checkRegistration(socket, "openConvError");
 		let target: ChatClient;
-
-		this.logger.debug("OPENCOOOOOOOOOONV");
 
 		if (!isValidUserId(payload.targetId)) {
 			this.logger.error(`openConv: invalid targetId value ${payload.targetId}`);
@@ -768,9 +816,62 @@ export class ChatService {
 			return;
 		}
 
-		socket.emit("roomJoined", {roomId: target.getId(), name: target.state.login});
+		socket.emit("roomJoined", {roomId: target.getId(), name: target.state.profile.login});
 	}
 
+	letInvite(socket: Socket, payload: any) {
+		let client: ChatClient = this.checkRegistration(socket, "letInviteError");
+		let room: ChatRoom;
+		let target: ChatClient;
+
+		if (!isValidRoomId(payload.roomId) || payload.roomId === GENERAL_ROOM_ID) {
+			this.logger.error(`setAdmin: invalid roomId value ${payload.roomId}`);
+			socket.emit("roomError", makeError(ChatResult.InvalidValue));
+			return;
+		}
+
+		if (!isValidUserId(payload.targetId)) {
+			this.logger.error(`letInvite: invalid targetId value ${payload.targetId}`);
+			socket.emit("roomError", makeError(ChatResult.InvalidValue, payload.roomId));
+			return;
+		}
+
+		room = this.checkRoom(socket, payload.targetId, "roomError");
+		target = this.checkUser(socket, payload.targetId, "roomError", payload.roomId);
+
+		if (target.state.userStatus !== UserStatus.Online) {
+			this.logger.error(`letInvite: user  ${payload.targetId} not online`);
+			if (target.state.userStatus === UserStatus.InGame)
+				socket.emit("roomError", makeError(ChatResult.InGame, payload.roomId));
+				else
+				socket.emit("roomError", makeError(ChatResult.NotOnline, payload.roomId));
+		}
+
+		payload.id = client.state.getId();
+		payload.login = client.state.profile.login;
+
+		target.socket.emit("inviteGame")
+	}
+
+	reattach(socket: Socket) {
+		let client: ChatClient = this.checkRegistration(socket, "reattachError");
+
+		this.sendInitialInformation(socket, client);
+	}
+
+	sendInitialInformation(socket: Socket, chatClient: ChatClient) {
+		chatClient.roomJoined(this.rooms.get(GENERAL_ROOM_ID));
+
+		for (let r of this.rooms.values()) {
+			if (r.getId() === GENERAL_ROOM_ID) continue;
+
+			if (r.isInRoom(chatClient)) {
+				chatClient.roomJoined(r);
+			} else if (!r.isPrivate()) {
+				chatClient.newRoom(r);
+			}
+		}
+	}
 
 	checkRegistration(socket: Socket, errorEvent?: string): ChatClient {
 		let clientId = socket.id;
@@ -789,7 +890,7 @@ export class ChatService {
 		let room: ChatRoom = this.rooms.get(roomId);
 
 		if (!room && errorEvent !== undefined) {
-			socket.emit(errorEvent, makeError(ChatResult.TargetNotFound));
+			socket.emit(errorEvent, makeError(ChatResult.TargetNotFound, roomId));
 
 			throw `room ${socket.id} not found`;
 		}
@@ -797,12 +898,12 @@ export class ChatService {
 		return room;
 	}
 
-	checkUser(socket: Socket, userId: number, errorEvent?: string): ChatClient {
+	checkUser(socket: Socket, userId: number, errorEvent?: string, roomId?: number): ChatClient {
 		let clientSID: string = this.clientsSID.get(userId);
 		let client: ChatClient = this.clients.get(clientSID);
 
 		if (!client && errorEvent !== undefined) {
-			socket.emit(errorEvent, makeError(ChatResult.TargetNotFound));
+			socket.emit(errorEvent, makeError(ChatResult.TargetNotFound, roomId));
 
 			throw `user ${userId} not found`;
 		}
@@ -814,27 +915,31 @@ export class ChatService {
 function getErrorMessage(res: ChatResult): string {
 	switch (res) {
 		case ChatResult.Ok:					return "Noice :)";
-		case ChatResult.NotRegistered:		return "client not registered";
+		case ChatResult.NotRegistered:		return "user not registered";
 		case ChatResult.TargetNotFound:		return "target not found";
 		case ChatResult.InvalidValue:		return "invalid value";
-		case ChatResult.AlreadyInRoom:		return "client already in room";
+		case ChatResult.AlreadyInRoom:		return "user already in room";
 		case ChatResult.PasswordRequired:	return "password required";
 		case ChatResult.WrongPassword:		return "wrong password";
-		case ChatResult.NotInRoom:			return "client not in the room";
-		case ChatResult.TargetNotInRoom:	return "target client not in the room";
-		case ChatResult.NotAdmin:			return "client not admin of the room";
-		case ChatResult.Blocked:			return "client blocked by target";
+		case ChatResult.NotInRoom:			return "user not in the room";
+		case ChatResult.TargetNotInRoom:	return "target user not in the room";
+		case ChatResult.NotAdmin:			return "user not admin of the room";
+		case ChatResult.Blocked:			return "user blocked by target";
 		case ChatResult.Muted:				return "you've been muted";
 		case ChatResult.Banned:				return "you've been banned from this channel";
 		case ChatResult.LastAdmin:			return "you're the last admin, you cannot perform this action";
+		case ChatResult.GeneralRoom:		return "could not execute command in " + GENERAL_ROOM_NAME;
+		case ChatResult.NotOnline:			return "user not online";
+		case ChatResult.InGame:				return "user in game";
 		default: return "unknown error";
 	}
 }
 
-function makeError(error: ChatResult): any {
+function makeError(error: ChatResult, roomId?: number): any {
 	return {
 		error: ChatResult[error],
-		message: getErrorMessage(error)
+		message: getErrorMessage(error),
+		targetId: roomId,
 	};
 }
 

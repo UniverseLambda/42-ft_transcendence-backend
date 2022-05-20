@@ -1,5 +1,7 @@
 import * as process from "process";
 
+import * as path from "path";
+
 let port: number = undefined;
 
 export function isLocal(): boolean {
@@ -35,4 +37,12 @@ export function getBackendPort(): number {
     }
     return port;
   }
+}
+
+export function getAvatarStoragePath() {
+  if (isLocal()) {
+    return `${path.dirname(__dirname)}/user_data/avatar`
+  }
+
+  return process.env.VOLUME_AVATAR_PATH;
 }
