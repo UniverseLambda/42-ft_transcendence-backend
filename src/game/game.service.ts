@@ -256,7 +256,7 @@ export class GameService {
 		// Check if the invite list is pending
 		if (!this.inviteList.has(player.getGameId))
 			throw ExceptionGameSession("inviteAccepted : player not invited");
-		var game = this.inviteList.get(player.getId);
+		var game = this.inviteList.get(player.getGameId);
 		if (game.getPlayer2.getId !== player.getId)
 			throw ExceptionGameSession("inviteAccepted : this is not his invitation!");
 		this.logger.log(`[MATCHMAKING] Client -${player.getId}- accepted invitiation...`);
@@ -282,7 +282,7 @@ export class GameService {
 		// Check if the invite list is pending
 		if (!this.inviteList.has(player.getGameId))
 			throw ExceptionGameSession("inviteRefused : player not invited");
-		var game = this.inviteList.get(player.getId);
+		var game = this.inviteList.get(player.getGameId);
 		if (game.getPlayer2.getId !== player.getId)
 			throw ExceptionGameSession("inviteRefused : this is not his invitation!");
 		this.logger.log(`[MATCHMAKING] Players ${player.getId} refused to play.`);
