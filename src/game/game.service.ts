@@ -411,12 +411,26 @@ export class GameService {
 		}
 		// First disconnect the socket, share between lists.
 		var clientData = this.clientList.get(client.id);
-		if (client.connected)
+		if (client.connected) {
+			clientData.sendMessage('disconnectInGame', []);
 			clientData.disconnect();
+		}
+		// If he was in game, send message and disconnect him
+		if (this.gameList.has(clientData.getGameId)) {
+			var gameSession = this.gameList.get(clientData.getGameId);
+			if (gameSession.isPlayer1(client)) {
+				gameSession.getPlayer1.sendMessage('disconnectInGame', []);
+				gameSession.getPlayer1.disconnect();
+			}
+			else {
+				gameSession.getPlayer2.sendMessage('disconnectInGame', []);
+				gameSession.getPlayer2.disconnect();
+			}
+			this.gameList.delete(clientData.getGameId);
+		}
 		appService.socketDisconnected(clientData.getId);
 		this.logger.log(`[GAME] Client -${this.clientList.get(client.id).getId}- unregistered.`);
-		if (!clientData.isAuthentified || !clientData.isInGame)
-			this.clientIDList.delete(this.clientList.get(client.id).getId);
+		this.clientIDList.delete(this.clientList.get(client.id).getId);
 		this.clientList.delete(client.id);
 	}
 	unregisterAllClient() {
