@@ -460,7 +460,7 @@ export class GameService {
 	onBallSync(gameId: number, ballPos: [number, number], ballVel: [number, number]) {
 		let g: GameSession = this.gameList.get(gameId);
 
-		this.logger.debug("************* onBallSync");
+		// this.logger.debug("************* onBallSync");
 		g.getPlayer1.getSocket.emit("ballSync", ballPos, ballVel);
 		g.getPlayer2.getSocket.emit("ballSync", ballPos, ballVel);
 	}
