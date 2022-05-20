@@ -435,8 +435,10 @@ export class GameService {
 	onBallThrown(gameId: number) {
 		let g: GameSession = this.gameList.get(gameId);
 
-		g.getPlayer1.getSocket.emit("ballThrown");
-		g.getPlayer2.getSocket.emit("ballThrown");
+		// g.getPlayer1.getSocket.emit("ballThrown");
+		// g.getPlayer2.getSocket.emit("ballThrown");
+
+		g.startSet();
 	}
 
 	onGameEnded(gameId: number) {
@@ -455,10 +457,10 @@ export class GameService {
 		g.getPlayer2.getSocket.emit("playerSync", playerIdx, pos);
 	}
 
-	onBallUpdate(gameId: number, ballPos: [number, number], ballVel: [number, number]) {
+	onBallSync(gameId: number, ballPos: [number, number], ballVel: [number, number]) {
 		let g: GameSession = this.gameList.get(gameId);
 
-		this.logger.debug("************* onBallUpdate");
+		this.logger.debug("************* onBallSync");
 		g.getPlayer1.getSocket.emit("ballSync", ballPos, ballVel);
 		g.getPlayer2.getSocket.emit("ballSync", ballPos, ballVel);
 	}
@@ -469,6 +471,7 @@ export class GameService {
 		switch (message.event) {
 			case "ballThrown": this.onBallThrown(dta.id); break;
 			case "onPlayerSync": this.onPlayerSync(dta.id, dta.player, dta.pos); break;
+			case "ballSync": this.onBallSync(dta.id, dta.pos, dta.vel); break;
 			case "gameEnded": this.onGameEnded(dta.id); break;
 		}
 	}

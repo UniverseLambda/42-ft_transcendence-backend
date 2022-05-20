@@ -260,9 +260,7 @@ class ChatRoom implements MessageReceipient {
 
 		if (!sender.admin) return ChatResult.NotAdmin;
 
-		this.removeUser(targetClient);
-
-		return ChatResult.Ok;
+		return this.removeUser(targetClient);
 	}
 
 	setMute(userClient: ChatClient, targetClient: ChatClient, duration: number) {
@@ -512,10 +510,10 @@ export class ChatService {
 
 		room = this.checkRoom(socket, payload.roomId, "setRoomPasswordResult");
 
-		if (payload.password !== undefined
-			|| typeof payload.password !== "string"
+		if ((payload.password !== undefined
+			&& typeof payload.password !== "string")
 			|| (payload.password !== undefined && payload.password.length === 0)) {
-			this.logger.error(`setRoomPassword: invalid password value ${payload.roomId}`);
+			this.logger.error(`setRoomPassword: invalid password value ${payload.password}`);
 			socket.emit("setRoomPasswordResult", makeError(ChatResult.InvalidValue));
 			return false;
 		}
@@ -575,25 +573,23 @@ export class ChatService {
 
 	blockUser(socket: Socket, payload: any) {
 		let client: ChatClient = this.checkRegistration(socket, "blockUserError");
-		let targetId: number;
 		let target: ChatClient;
 
 		if (!isValidUserId(payload.targetId)) {
-			this.logger.error(`blockUser: invalid roomId value ${payload.roomId}`);
+			this.logger.error(`blockUser: invalid targetId value ${payload.targetId}`);
 			socket.emit("blockUserError", makeError(ChatResult.InvalidValue));
 			return;
 		}
 
-		target = this.checkUser(socket, targetId, "blockUserError");
+		target = this.checkUser(socket, payload.targetId, "blockUserError");
 
 		client.addBlocked(target);
 
-		socket.emit("userBlocked", {id: targetId});
+		socket.emit("userBlocked", {id: payload.targetId});
 	}
 
 	unblockUser(socket: Socket, payload: any) {
 		let client: ChatClient = this.checkRegistration(socket, "unblockUserError");
-		let targetId: number;
 		let target: ChatClient;
 
 		if (!isValidUserId(payload.targetId)) {
@@ -602,10 +598,10 @@ export class ChatService {
 			return;
 		}
 
-		target = this.checkUser(socket, targetId, "unblockUserError");
+		target = this.checkUser(socket, payload.targetId, "unblockUserError");
 
 		client.removeBlocked(target);
-		socket.emit("userUnblocked", {id: targetId});
+		socket.emit("userUnblocked", {id: payload.targetId});
 	}
 
 	setBan(socket: Socket, payload: any) {
@@ -632,6 +628,7 @@ export class ChatService {
 		}
 
 		room = this.checkRoom(socket, payload.roomId, "roomError");
+		target = this.checkUser(socket, payload.targetId, "roomError");
 
 		let result: ChatResult;
 
@@ -643,8 +640,10 @@ export class ChatService {
 
 		if (result === ChatResult.Ok) {
 			socket.emit("userBanned", {roomId: payload.roomId, targetId: payload.targetId});
+			this.logger.debug(`setBan: user ${target.getId()} banned from ${room.getId()} by ${client.getId()}`);
 		} else {
 			socket.emit("roomError", makeError(result));
+			this.logger.error(`setBan: could not ban user ${target.getId()} from ${room.getId()} (issued by ${client.getId()}, reason: ${ChatResult[result]})`);
 		}
 	}
 
@@ -666,6 +665,7 @@ export class ChatService {
 		}
 
 		room = this.checkRoom(socket, payload.roomId, "roomError");
+		target = this.checkUser(socket, payload.targetId, "roomError");
 
 		let result: ChatResult = room.kickUser(client, target);
 
