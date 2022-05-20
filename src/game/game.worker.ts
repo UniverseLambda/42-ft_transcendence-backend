@@ -1,8 +1,19 @@
 import { Logger } from "@nestjs/common";
 import { parentPort, workerData } from "worker_threads";
 
-const sleep = ms => new Promise(r => setTimeout(r, ms));
+const LOOP_WAIT_MS: number = 10 /* ms */;
+const SYNC_DELAY: number = 500;
+const MAP_WIDTH: number = 300;
+const MAP_HEIGHT: number = 150;
+const PLAYER_WIDTH: number = 5;
+const PLAYER_HEIGHT: number = 30;
+const BALL_RADIUS: number = 3;
+const BALL_SPEED: number = 10;
 
+const BALL_INIT_VELX: number = 0.0;
+const BALL_INIT_VELY: number = 1.0;
+
+const sleep = ms => new Promise(r => setTimeout(r, ms));
 const logger = new Logger("GameWorker");
 
 parentPort.on("message", dispatchMessage);
@@ -24,16 +35,14 @@ function startGame(id: number): void {
 }
 
 function throwBall(id: number): void {
-	// logger.debug(`THROWBALL: ${id}`);
+	logger.debug(`THROWBALL: ${id}`);
 
 	let game = games.get(id);
 
-	game.ballVelX = 0.1;
-	game.ballVelY = 0.9;
+	game.ballVelX = BALL_INIT_VELX;
+	game.ballVelY = BALL_INIT_VELY;
 
-	game.roundPromise = roundUpdate(id);
-
-	emitMessage("ballThrown", {id: id});
+	game.roundPromise = roundUpdate(id, game);
 }
 
 function endGame(id: number): void {
@@ -57,9 +66,47 @@ function dispatchMessage(message: any) {
 	}
 }
 
-async function roundUpdate(gameId: number) {
+async function roundUpdate(id: number, game: Data) {
+	let lastLoop = Date.now();
+	let lastUpdate = 0;
+
+	emitMessage("ballThrown", {id: id});
+
 	while (true) {
-		await sleep(10);
+		await sleep(LOOP_WAIT_MS /* ms */);
+
+
+		let delta = Date.now() - lastLoop;
+
+		// DATA
+
+		game.ballPosX += game.ballVelX * BALL_SPEED * (delta / 1000.0);
+		game.ballPosY += game.ballVelY * BALL_SPEED * (delta / 1000.0);
+
+		logger.error(`Y: ${game.ballPosY} ()`);
+
+		if ((game.ballPosY + (BALL_RADIUS / 2)) >= MAP_HEIGHT / 2) {
+			game.ballVelY *= -1;
+			game.ballPosY = (MAP_HEIGHT / 2) - (BALL_RADIUS / 2);
+			logger.error(`SWITCH COLLIDE Y 0 vel: ${game.ballVelY}`);
+		}
+
+		if ((game.ballPosY - (BALL_RADIUS / 2)) <= MAP_HEIGHT / 2) {
+			game.ballVelY *= -1;
+			game.ballPosY = -((MAP_HEIGHT / 2) - (BALL_RADIUS / 2));
+			logger.error(`SWITCH COLLIDE Y 1 vel: ${game.ballVelY}`);
+		}
+
+		if (Date.now() - lastUpdate >= SYNC_DELAY) {
+			emitMessage("ballSync", {
+				id: id,
+				pos: [game.ballPosX, game.ballPosY],
+				vel: [game.ballVelX, game.ballVelY]});
+
+			lastUpdate = Date.now();
+		}
+
+		lastLoop = Date.now();
 	}
 }
 

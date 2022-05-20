@@ -141,6 +141,12 @@ export class ProfileController {
 	async getFriendList(@Req() req: Request) {
 		let sess = await this.appService.getSessionData(req);
 
+		if (!sess) {
+			// TODO: getFriendList: revive les données
+			this.logger.error(`getFriendList: WTF, sess is ${sess}`);
+			return [];
+		}
+
 		return this.appService.getFriendList(sess);
 	}
 
