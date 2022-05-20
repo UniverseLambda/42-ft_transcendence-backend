@@ -28,7 +28,7 @@ export class GameGateway implements OnGatewayConnection, OnGatewayDisconnect {
 	// Need implementation client side
 	@SubscribeMessage('ready')
 	handleReady(@ConnectedSocket() client : Socket) {
-		try {this.gameService.readyToStart(client);}
+		try { this.gameService.readyToStart(client); }
 		catch (e) { this.logger.error("handleReady: " + e.name + " " + e.message); }
 	}
 

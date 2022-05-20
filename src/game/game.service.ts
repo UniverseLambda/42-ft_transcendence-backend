@@ -26,8 +26,7 @@ export class PendingClient { constructor(public id : number, public map : string
 
 export class Client {
 	private inGame : boolean = true;
-	private isReady : boolean = false;
-	private gameId : number;
+	private gameId : number = 0;
 	constructor(private socket : Socket,
 		private authentified : boolean,
 		private state : ClientState,
@@ -71,6 +70,9 @@ export class GameSession {
 
 	constructor(private player1 : Client, private player2 : Client) {
 		this.id = player1.getId + player2.getId;
+	}
+
+	public notifyPlayers() {
 		this.player1.getGameId = this.id;
 		this.player2.getGameId = this.id;
 	}
@@ -160,12 +162,11 @@ export class GameService {
 	private clientIDList : Map<number, Client> = new Map();
 	private pendingList : Map<string, Client> = new Map();
 	private gameList : Map<number, GameSession> = new Map();
+	private inviteList: Map<number, GameSession> = new Map();
 
 
 	constructor() {
 		this.worker = new Worker(`${path.dirname(__filename)}/game.worker.js`);
-
-
 		this.worker.on("message", (message) => this.dispatchMessage(message))
 	}
 
@@ -219,6 +220,77 @@ export class GameService {
 		return true;
 	}
 
+	inviteUser(socket : Socket, payload : any) {
+		if (!this.clientList.has(socket.id) || !this.clientIDList.has(payload.id)
+				|| !this.clientIDList.has(payload.target))
+			throw ExceptionUserNotRegister("inviteUser");
+		this.logger.log(`[MATCHMAKING] Client -${socket.id}- invited someone...`);
+
+		var player = this.clientIDList.get(payload.id);
+		var opponent = this.clientIDList.get(payload.target);
+		var newGame = new GameSession(player, opponent);
+		var newGameTryError = new GameSession(opponent, player);
+
+		// If the game is already registered, cancel process and return an error.
+		if (this.inviteList.has(newGame.getId) || this.inviteList.has(newGameTryError.getId)
+			|| this.gameList.has(newGame.getId) || this.gameList.has(newGameTryError.getId)) {
+			throw ExceptionGameSession(`inviteUser : game with ID ${newGame.getId} already stored.`)
+		}
+		//// Alternative to game found
+		// Define player informations
+		player.getMap = payload.map;
+		player.getDifficulty = payload.difficulty;
+		newGame.notifyPlayers();
+		// Notify opponent, send the login of the sender
+		newGame.getPlayer2.sendMessage('recvInvite', payload.login);
+		// Add game to pending invite list
+		this.inviteList.set(newGame.getId, newGame);
+	}
+
+	inviteAccepted(socket : Socket) {
+		if (!this.clientList.has(socket.id))
+			throw ExceptionUserNotRegister("inviteAccepted");
+
+		var player = this.clientList.get(socket.id);
+		// Check if the invite list is pending
+		if (!this.inviteList.has(player.getGameId))
+			throw ExceptionGameSession("inviteAccepted : player not invited");
+		var game = this.inviteList.get(player.getId);
+		if (game.getPlayer2.getId !== player.getId)
+			throw ExceptionGameSession("inviteAccepted : this is not his invitation!");
+		this.logger.log(`[MATCHMAKING] Client -${player.getId}- accepted invitiation...`);
+
+		// Set opponent parameters
+		game.getPlayer2.getMap = game.getPlayer1.getMap;
+		game.getPlayer2.getDifficulty = game.getPlayer1.getDifficulty;
+
+		this.logger.log(`[MATCHMAKING] Players ${game.getPlayer1.getId} | ${game.getPlayer2.getId} launch duel.`);
+		// Notify players that a game has been found
+		game.getPlayer1.sendMessage('found', []);
+		game.getPlayer2.sendMessage('found', []);
+		this.gameList.set(game.getId, game);
+		this.inviteList.delete(game.getId);
+	}
+
+	inviteRefused(socket : Socket) {
+		if (!this.clientList.has(socket.id))
+			throw ExceptionUserNotRegister("inviteAccepted");
+
+		var player = this.clientList.get(socket.id);
+
+		// Check if the invite list is pending
+		if (!this.inviteList.has(player.getGameId))
+			throw ExceptionGameSession("inviteRefused : player not invited");
+		var game = this.inviteList.get(player.getId);
+		if (game.getPlayer2.getId !== player.getId)
+			throw ExceptionGameSession("inviteRefused : this is not his invitation!");
+		this.logger.log(`[MATCHMAKING] Players ${player.getId} refused to play.`);
+
+		game.getPlayer1.disconnect();
+		game.getPlayer2.disconnect();
+		this.inviteList.delete(game.getId);
+	}
+
 	searchGame(socket : Socket, playerInfo : PendingClient) {
 		if (!this.clientList.has(socket.id) || !this.clientIDList.has(playerInfo.id))
 			throw ExceptionUserNotRegister("searchGame");
@@ -236,7 +308,6 @@ export class GameService {
 		}
 
 		this.pendingList.set(socket.id, player);
-		this.logger.log(`AAAAAAAAAA ID: ${socket.id} (${playerInfo.id})`);
 		this.logger.log(`[MATCHMAKING] Client -${this.findClientSocket(socket.id).getId}- entered a pool.`);
 	}
 
@@ -248,6 +319,7 @@ export class GameService {
 		player2.sendMessage('found', []);
 
 		var newGame = new GameSession(player1, player2);
+		newGame.notifyPlayers();
 		this.gameList.set(newGame.getId, newGame);
 	}
 
