@@ -134,39 +134,14 @@ export class ProfileController {
 			this.logger.error(`Could not reset avatar: ${reason}`);
 		}
 
-
 		return "OK";
 	}
 
 	@Post("get_friend_list")
 	async getFriendList(@Req() req: Request) {
-		let data = await this.appService.getSessionData(req);
+		let sess = await this.appService.getSessionData(req);
 
-		// login, level, rank, userStatus
-
-		return [
-			{
-				id: 78541,
-				login: "sbaranes",
-				level: 50,
-				rank: "ZEMASTER",
-				userStatus: "Offline",
-			},
-			{
-				id: 77068,
-				login: "clsaad",
-				level: 50,
-				rank: "N00b",
-				userStatus: "Online",
-			},
-			{
-				id: 2,
-				login: "A",
-				level: 50,
-				rank: "Meh",
-				userStatus: "InGame",
-			},
-		];
+		return this.appService.getFriendList(sess);
 	}
 
 	@Post(["match_history", "match_history/:id"])
@@ -196,7 +171,7 @@ export class ProfileController {
 	}
 
 	@Post("get_user_info")
-	async getUserInfo(@Req() req: Request, @Res() res: Response, @Body("id") idStr?: string) {
+	async getUserInfo(@Req() req: Request, @Res() res: Response, @Body("targetId") idStr?: string) {
 		let sess = await this.appService.getSessionData(req);
 		let id: number;
 
@@ -214,19 +189,30 @@ export class ProfileController {
 
 		let client: ClientState = await this.appService.getClientState(id);
 
+		// TODO: getUserInfo: retrieve from DB
+		if (client === undefined) {
+			return {
+				error: "NotFound"
+			};
+		}
+
 		let data: any = {
 			id: client.getId(),
 			login: client.login,
 			displayName: client.displayName,
 			imageUrl: this.appService.getAvatarUrl(client),
 			userStatus: client.userStatus,
+			rank: client.rank,
+			level: client.level,
+			win: client.win,
+			loose: client.loose,
 		}
 
 		if (client.getId() === sess.getId()) {
 			data.requires2FA = (client.totpSecret !== undefined);
 		}
 
-		return res.json();
+		return res.json(data).end();
 	}
 
 	@Post("activate_2fa")
@@ -276,5 +262,33 @@ export class ProfileController {
 
 		this.appService.deactivate2FA(sess);
 		return {};
+	}
+
+	@Post("add_friend")
+	async addFriend(@Req() req: Request, @Body("targetId") targetId?: any): Promise<any> {
+		let sess = await this.appService.getSessionData(req);
+
+		if (typeof targetId !== "number" || !Number.isSafeInteger(targetId)) {
+			this.logger.warn(`addFriend: invalid targetId value ${targetId}`);
+			return {
+				error: "TAMERE"
+			};
+		}
+
+		return this.appService.addFriend(sess, targetId);
+	}
+
+	@Post("remove_friend")
+	async removeFriend(@Req() req: Request, @Body("targetId") targetId?: any): Promise<any> {
+		let sess = await this.appService.getSessionData(req);
+
+		if (typeof targetId !== "number" || !Number.isSafeInteger(targetId)) {
+			this.logger.warn(`removeFriend: invalid targetId value ${targetId}`);
+			return {
+				error: "TAMERE"
+			};
+		}
+
+		return this.appService.removeFriend(sess, targetId);
 	}
 }

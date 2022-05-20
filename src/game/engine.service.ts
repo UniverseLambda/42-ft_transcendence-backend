@@ -53,6 +53,6 @@ export class EngineConsumer {
 	// need implementation
 	@Process('updateBall')
 	async updateBall(job : Job<any>) {
-		await this.gameService.updateBallPosition(job.data.client, job.data.payload);
+		// await this.gameService.updateBallPosition(job.data.client, job.data.payload);
 	}
 }

@@ -30,7 +30,9 @@ class ChatClient implements MessageReceipient {
 	roomLeaved(room: ChatRoom) {
 		this.rooms.delete(room.getId());
 
-		this.socket.emit("roomLeaved", {roomId: room.getId()});
+		this.socket.emit("roomLeaved", {
+			roomId: room.getId(), isPublic: !room.isPrivate()
+		});
 	}
 
 	disconnected() {
@@ -89,7 +91,7 @@ class ChatRoomClientData implements MessageReceipient {
 	}
 
 	isMuted(): boolean {
-		return (this.muteStart + this.muteDuration) > Date.now();
+		return (Date.now() - this.muteStart) <= this.muteDuration;
 	}
 
 	mute(muteDuration: number /* in secs */) {
@@ -122,24 +124,24 @@ class ChatRoom implements MessageReceipient {
 
 	constructor(public readonly roomId: number, public readonly name: string, creator: ChatClient, private roomPrivate: boolean, private password?: string) {
 		if (creator !== null) {
-			this.addUser(creator);
+			this.addUser(creator, true);
 			this.adminCount = 1;
 		}
 	}
 
-	addUser(user: ChatClient, doNotEmit: boolean = false): ChatResult {
+	addUser(user: ChatClient, isAdmin: boolean = false): ChatResult {
 		if (this.members.has(user.state.getId())) return ChatResult.AlreadyInRoom;
 		if (this.banList.has(user.state.getId())) return ChatResult.Banned;
 
-		this.members.set(user.state.getId(), new ChatRoomClientData(user, false));
+		this.members.set(user.state.getId(), new ChatRoomClientData(user, isAdmin));
 
-		user.roomJoined(this, doNotEmit);
+		user.roomJoined(this);
 
 		return ChatResult.Ok;
 	}
 
 	removeUser(user: ChatClient): ChatResult {
-		if (this.members.has(user.state.getId())) return ChatResult.NotInRoom;
+		if (!this.members.has(user.state.getId())) return ChatResult.NotInRoom;
 
 
 		let roomClient = this.members.get(user.state.getId());
@@ -282,6 +284,10 @@ class ChatRoom implements MessageReceipient {
 
 	isPrivate(): boolean {
 		return this.roomPrivate;
+	}
+
+	userCount(): number {
+		return this.members.size;
 	}
 }
 
@@ -470,16 +476,15 @@ export class ChatService {
 
 	leaveRoom(socket: Socket, payload: any): void {
 		let client: ChatClient = this.checkRegistration(socket, "leaveRoomError");
-		let roomId: number;
 		let room: ChatRoom;
 
-		if (isValidRoomId(payload.roomId)) {
+		if (!isValidRoomId(payload.roomId) || payload.roomId === GENERAL_ROOM_ID) {
 			this.logger.error(`leaveRoom: invalid roomId value ${payload.roomId}`);
 			socket.emit("leaveRoomError", makeError(ChatResult.InvalidValue));
 			return;
 		}
 
-		room = this.checkRoom(socket, roomId, "leaveRoomError");
+		room = this.checkRoom(socket, payload.roomId, "leaveRoomError");
 
 		let result = room.removeUser(client);
 
@@ -488,20 +493,24 @@ export class ChatService {
 			socket.emit("leaveRoomError", makeError(result));
 			return;
 		}
+
+		if (room.userCount() === 0 && !room.isPrivate()) {
+			this.rooms.delete(room.getId());
+			socket.emit("roomDeleted", {roomId: room.getId(), name: room.name});
+		}
 	}
 
 	setRoomPassword(socket: Socket, payload: any): boolean {
 		let client: ChatClient = this.checkRegistration(socket, "setRoomPasswordResult");
-		let roomId: number;
 		let room: ChatRoom;
 
-		if (isValidRoomId(payload.roomId) || payload.roomId === GENERAL_ROOM_ID) {
+		if (!isValidRoomId(payload.roomId) || payload.roomId === GENERAL_ROOM_ID) {
 			this.logger.error(`setRoomPassword: invalid roomId value ${payload.roomId}`);
 			socket.emit("setRoomPasswordResult", makeError(ChatResult.InvalidValue));
 			return false;
 		}
 
-		room = this.checkRoom(socket, roomId, "setRoomPasswordResult");
+		room = this.checkRoom(socket, payload.roomId, "setRoomPasswordResult");
 
 		if (payload.password !== undefined
 			|| typeof payload.password !== "string"
@@ -529,7 +538,7 @@ export class ChatService {
 		let room: ChatRoom;
 
 		if (!isValidRoomId(payload.roomId) || payload.roomId === GENERAL_ROOM_ID) {
-			this.logger.error(`joinRoom: invalid roomId value ${payload.roomId}`);
+			this.logger.error(`joinRoom: invalid roomId value \`${payload.roomId}\``);
 			socket.emit("joinRoomError", makeError(ChatResult.InvalidValue));
 			return;
 		}
@@ -538,7 +547,12 @@ export class ChatService {
 
 		if (room.hasPassword()) {
 			if (typeof payload.password !== "string" || payload.password.length === 0) {
-				this.logger.error(`joinRoom: invalid password value ${payload.roomId}`);
+				this.logger.error(`joinRoom: invalid password value \`${payload.password}\``);
+
+				if (room.isPrivate() && payload.toFind) {
+					socket.emit("newRoom", {roomId: room.roomId, name: room.name });
+				}
+
 				socket.emit("joinRoomError", makeError(ChatResult.PasswordRequired));
 				return;
 			}
@@ -679,19 +693,23 @@ export class ChatService {
 			return;
 		}
 
-		if (typeof (payload.duration) !== "number" || Number.isSafeInteger(payload.duration)) {
-			this.logger.error(`setMute: invalid duration value ${payload.roomId}`);
+
+		if (typeof (payload.duration) !== "number" || !Number.isSafeInteger(payload.duration)) {
+			this.logger.error(`setMute: invalid duration value ${payload.duration}`);
 			socket.emit("roomError", makeError(ChatResult.InvalidValue));
 			return;
 		}
 
 		room = this.checkRoom(socket, payload.roomId, "setMuteError");
+		target = this.checkUser(socket, payload.targetId, "setMuteError");
 
 		let result: ChatResult = room.setMute(client, target, payload.duration);
 
 		if (result === ChatResult.Ok) {
+			this.logger.debug(`setMute: user ${target.getId()} muted on channel ${room.roomId} for ${payload.duration} seconds.`);
 			socket.emit("userMuted", {roomId: payload.roomId, targetId: payload.targetId, duration: payload.duration});
 		} else {
+			this.logger.error(`setMute: could not mute user ${target.getId()} muted on channel ${room.roomId} for ${payload.duration} seconds (${ChatResult[result]}).`);
 			socket.emit("roomError", makeError(result));
 		}
 	}
@@ -820,8 +838,8 @@ function makeError(error: ChatResult): any {
 	};
 }
 
-function isValidRoomId(number: unknown, acceptGeneral: boolean = false): boolean {
-	return typeof number === "number" && Number.isSafeInteger(number) && (number < 0 || (number == 0 && acceptGeneral));
+function isValidRoomId(number: unknown): boolean {
+	return typeof number === "number" && Number.isSafeInteger(number) && number < 0;
 }
 
 function isValidUserId(number: unknown): boolean {
