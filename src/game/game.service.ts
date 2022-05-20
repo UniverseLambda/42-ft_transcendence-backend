@@ -217,17 +217,18 @@ export class GameService {
 			this.logger.error(`[MATCHMAKING] Socket -${socket.id}- suddenly disconnect.`);
 			throw ExceptionSocketConnection('registerFront');
 		}
+		appService.socketConnected(state.getId());
 		return true;
 	}
 
 	inviteUser(socket : Socket, payload : any) {
 		if (!this.clientList.has(socket.id) || !this.clientIDList.has(payload.id)
-				|| !this.clientIDList.has(payload.target))
+				|| !this.clientIDList.has(payload.targetId))
 			throw ExceptionUserNotRegister("inviteUser");
 		this.logger.log(`[MATCHMAKING] Client -${socket.id}- invited someone...`);
 
 		var player = this.clientIDList.get(payload.id);
-		var opponent = this.clientIDList.get(payload.target);
+		var opponent = this.clientIDList.get(payload.targetId);
 		var newGame = new GameSession(player, opponent);
 		var newGameTryError = new GameSession(opponent, player);
 
@@ -323,12 +324,13 @@ export class GameService {
 		this.gameList.set(newGame.getId, newGame);
 	}
 
-	unregisterPending(socket : Socket) {
+	unregisterPending(socket : Socket, appService : AppService) {
 		if (!this.clientList.has(socket.id))
 			throw ExceptionUserNotRegister("unregisterPending");
 		var clientSession = this.clientList.get(socket.id);
 		if (socket.connected)
 			clientSession.disconnect();
+		appService.socketDisconnected(clientSession.getId);
 		this.logger.log(`[MATCHMAKING] Client ${this.findClientSocket(socket.id).getId} unregistered.`);
 		if (!clientSession.isAuthentified)
 			this.clientIDList.delete(clientSession.getId);
@@ -400,9 +402,10 @@ export class GameService {
 		// }
 		/////////////////////////////////
 		this.logger.log(`[GAME] Client -${socket.id}- authentified.`);
+		appService.socketConnected(state.getId());
 	}
 
-	unregisterClient(client : Socket) {
+	unregisterClient(client : Socket, appService : AppService) {
 		if (!this.clientList.has(client.id) || !this.clientIDList.has(this.clientList.get(client.id).getId)) {
 			throw ExceptionUserNotRegister(`unregisterClient`);
 		}
@@ -410,6 +413,7 @@ export class GameService {
 		var clientData = this.clientList.get(client.id);
 		if (client.connected)
 			clientData.disconnect();
+		appService.socketDisconnected(clientData.getId);
 		this.logger.log(`[GAME] Client -${this.clientList.get(client.id).getId}- unregistered.`);
 		if (!clientData.isAuthentified || !clientData.isInGame)
 			this.clientIDList.delete(this.clientList.get(client.id).getId);

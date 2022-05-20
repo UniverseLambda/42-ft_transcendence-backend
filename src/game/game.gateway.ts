@@ -21,7 +21,7 @@ export class GameGateway implements OnGatewayConnection, OnGatewayDisconnect {
 	}
 
 	handleDisconnect(client: Socket) {
-		try { this.gameService.unregisterClient(client); }
+		try { this.gameService.unregisterClient(client, this.appService); }
 		catch (e) { this.logger.error("handleDisconnect: " + e.name + " " + e.message); }
 	}
 

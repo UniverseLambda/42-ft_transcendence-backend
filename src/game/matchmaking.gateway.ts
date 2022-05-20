@@ -19,7 +19,7 @@ export class MatchmakingGateway implements OnGatewayConnection, OnGatewayDisconn
 	}
 
 	handleDisconnect(client: Socket) {
-		try { this.gameService.unregisterPending(client); }
+		try { this.gameService.unregisterPending(client, this.appService); }
 		catch (e) { this.logger.error("handleDisconnect: " + e.name + " " + e.message); }
 	}
 
