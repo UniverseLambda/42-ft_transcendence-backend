@@ -14,4 +14,4 @@ RUN npm install \
 	&& npm install webpack --legacy-peer-deps
 
 # CMD npm start
-CMD ["npm", "start"]
+CMD ["/bin/bash", "./start.sh"]
