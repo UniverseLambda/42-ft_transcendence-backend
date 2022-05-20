@@ -68,6 +68,7 @@ export class GameSession {
 	private ballPosition : THREE.Vector3;
 	private readyStatus : [p1 : boolean, p2 : boolean] = [false, false];
 	private id : number;
+
 	constructor(private player1 : Client, private player2 : Client) {
 		this.id = player1.getId + player2.getId;
 		this.player1.getGameId = this.id;
@@ -163,6 +164,9 @@ export class GameService {
 
 	constructor() {
 		this.worker = new Worker(`${path.dirname(__filename)}/game.worker.js`);
+
+
+		this.worker.on("message", (message) => this.dispatchMessage(message))
 	}
 
 	/////////////////////////////////
@@ -376,34 +380,43 @@ export class GameService {
 
 	launchGame(gameSession : GameSession) {
 		gameSession.launchGame();
+
+		console.log(`STARTGAME: ${gameSession.getId}`);
+
+		this.emitMessage("startGame", {id: gameSession.getId});
 	}
 
 	// Socket is not checked for optimisation purpose
-	throwBall(client : Socket) {
+	throwBall(client: Socket) {
 		var gameSession = this.getGame(client.id);
-		gameSession.startSet();
+
+		console.log(`gameSesion: ${gameSession} (${gameSession.getId})`);
+
+		this.emitMessage("throwBall", {id: gameSession.getId});
+
 		this.logger.log('[GAME] ball thrown');
 	}
 
-	// Calculate the position at each reception of 'ballClient'.
-	// Send in Job
-	// Socket is not checked for optimisation purpose
-	updateBallPosition(socket : Socket, newPosition : THREE.Vector3) {
-		// Register and check if the player is registered
-		var gameSession = this.getGame(socket.id);
-		gameSession.getBallPosition = newPosition;
-		// MAYBE REMOVE LATER FOR A JOB
-		gameSession.sendBallPosition();
-	}
+	// // Calculate the position at each reception of 'ballClient'.
+	// // Send in Job
+	// // Socket is not checked for optimisation purpose
+	// updateBallPosition(socket : Socket, newPosition : THREE.Vector3) {
+	// 	// Register and check if the player is registered
+	// 	var gameSession = this.getGame(socket.id);
+	// 	gameSession.getBallPosition = newPosition;
+	// 	// MAYBE REMOVE LATER FOR A JOB
+	// 	gameSession.sendBallPosition();
+	// }
 
 	// Checkand update new player state
 	// Socket is not checked for optimisation purpose
-	async updatePlayer(client : Socket, position : THREE.Vector3) {
+	updatePlayer(client: Socket, position: number) {
 		var gameSession = this.getGame(client.id);
-		if (gameSession.isPlayer1(client))
-			gameSession.getPlayer2.sendMessage('opponentPosition', position);
-		else
-			gameSession.getPlayer1.sendMessage('opponentPosition', position);
+
+		var playerIndex = (gameSession.isPlayer1(client)) ? 0 : 1;
+
+		// this.worker.emit("setPlayerPos", gameSession.getId, playerIndex, position);
+		this.emitMessage("setPlayerPos", {id: gameSession.getId, player: playerIndex, pos: position})
 	}
 
 	// TODO End game ?
@@ -411,5 +424,56 @@ export class GameService {
 		var getGame = this.getGame(client.id);
 		getGame.getPlayer1.isInGame = false;
 		getGame.getPlayer2.isInGame = false;
+
+		this.emitMessage("endGame", {id: getGame.getId});
+	}
+
+	/************************/
+	/**   Worker handler   **/
+	/************************/
+
+	onBallThrown(gameId: number) {
+		let g: GameSession = this.gameList.get(gameId);
+
+		g.getPlayer1.getSocket.emit("ballThrown");
+		g.getPlayer2.getSocket.emit("ballThrown");
+	}
+
+	onGameEnded(gameId: number) {
+		let g: GameSession = this.gameList.get(gameId);
+
+		g.getPlayer1.getSocket.emit("gameEnded");
+		g.getPlayer2.getSocket.emit("gameEnded");
+	}
+
+	onPlayerSync(gameId: number, playerIdx: number, pos: number) {
+		let g: GameSession = this.gameList.get(gameId);
+
+		this.logger.debug("************* onPlayerSync");
+
+		g.getPlayer1.getSocket.emit("playerSync", playerIdx, pos);
+		g.getPlayer2.getSocket.emit("playerSync", playerIdx, pos);
+	}
+
+	onBallUpdate(gameId: number, ballPos: [number, number], ballVel: [number, number]) {
+		let g: GameSession = this.gameList.get(gameId);
+
+		this.logger.debug("************* onBallUpdate");
+		g.getPlayer1.getSocket.emit("ballSync", ballPos, ballVel);
+		g.getPlayer2.getSocket.emit("ballSync", ballPos, ballVel);
+	}
+
+	dispatchMessage(message: any) {
+		let dta = message.data;
+
+		switch (message.event) {
+			case "ballThrown": this.onBallThrown(dta.id); break;
+			case "onPlayerSync": this.onPlayerSync(dta.id, dta.player, dta.pos); break;
+			case "gameEnded": this.onGameEnded(dta.id); break;
+		}
+	}
+
+	emitMessage(event: string, data: any) {
+		this.worker.postMessage({event: event, data: data});
 	}
 }
