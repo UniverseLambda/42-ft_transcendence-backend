@@ -139,7 +139,7 @@ export class GameSession {
 
 	public launchSpectate(socketId : string) {
 		if (!this.spectateList.has(socketId))
-			throw ExceptionGameSession('addSpectate : Spectate already present.');
+			throw ExceptionGameSession('launchSpectate : Spectate already present.');
 		var client = this.spectateList.get(socketId);
 		client.sendMessage('launch', {
 			player:'spectate',
@@ -399,8 +399,9 @@ export class GameService {
 	}
 
 	unregisterPending(socket : Socket, appService : AppService) {
-		if (!this.clientList.has(socket.id))
+		if (!this.clientList.has(socket.id)) {
 			throw ExceptionUserNotRegister("unregisterPending");
+		}
 		var clientSession = this.clientList.get(socket.id);
 		if (socket.connected) {
 			clientSession.sendMessage("disconnectInMatchmaking", []);
@@ -414,6 +415,7 @@ export class GameService {
 			this.pendingList.delete(socket.id);
 		this.clientList.delete(socket.id);
 	}
+
 	unregisterAllPending() {
 		this.pendingList.forEach(element => {
 			this.clientList.delete(element.getSocket.id);
@@ -482,22 +484,27 @@ export class GameService {
 	}
 
 	unregisterClient(client : Socket, appService : AppService) {
-		if (!this.clientList.has(client.id) || !this.clientIDList.has(this.clientList.get(client.id).getId)) {
+		// Delete Client even if it's missing in the other database
+		if (!this.clientList.has(client.id)) {
 			throw ExceptionUserNotRegister(`unregisterClient`);
 		}
+		if (this.clientIDList.has(this.clientList.get(client.id).getId))
+			this.clientIDList.delete(this.clientList.get(client.id).getId);
 		// First disconnect the socket, share between lists.
 		var clientData = this.clientList.get(client.id);
 		if (this.gameList.has(clientData.getGameId) && !clientData.isSpectate) {
 			this.endGame(client, appService);
 		}
+		else if (this.gameList.has(clientData.getGameId) && clientData.isSpectate) {
+			this.gameList.get(clientData.getGameId).removeSpectate(client.id);
+		}
 		if (client.connected) {
 			clientData.sendMessage('disconnectInGame', []);
 			clientData.disconnect();
 		}
-		// If he was in game, send message and disconnect him
 		appService.socketDisconnected(clientData.getId);
+		// If he was in game, send message and disconnect him
 		this.logger.log(`[GAME] Client -${this.clientList.get(client.id).getId}- unregistered.`);
-		this.clientIDList.delete(this.clientList.get(client.id).getId);
 		this.clientList.delete(client.id);
 	}
 
@@ -515,11 +522,11 @@ export class GameService {
 	searchToSpectate(client : Socket, id : number) {
 		if (!this.clientList.has(client.id) || !this.clientIDList.has(this.clientList.get(client.id).getId)
 				|| !this.clientIDList.has(id)) {
-			throw ExceptionUserNotRegister(`searchSpectate`);
+			throw ExceptionUserNotRegister(`searchToSpectate`);
 		}
 		var clientToSpectate = this.clientIDList.get(id);
 		if (!clientToSpectate.isInGame || !this.gameList.has(clientToSpectate.getGameId))
-			throw ExceptionGameSession(`searchSpectate : player to spectate is not in game.`);
+			throw ExceptionGameSession(`searchToSpectate : player to spectate is not in game.`);
 
 		var gameToSpectate = this.gameList.get(clientToSpectate.getGameId);
 		gameToSpectate.addSpectate(client.id, clientToSpectate);
@@ -603,6 +610,8 @@ export class GameService {
 
 		getGame.getPlayer1.sendMessage('disconnectInGame', []);
 		getGame.getPlayer2.sendMessage('disconnectInGame', []);
+		appService.socketDisconnected(getGame.getPlayer1.getId);
+		appService.socketDisconnected(getGame.getPlayer2.getId);
 		getGame.getPlayer1.disconnect();
 		getGame.getPlayer2.disconnect();
 		getGame.getPlayer1.isInGame = false;

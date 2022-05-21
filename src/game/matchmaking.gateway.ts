@@ -42,6 +42,8 @@ export class MatchmakingGateway implements OnGatewayConnection, OnGatewayDisconn
 
 	@SubscribeMessage('spectate')
 	handleSpectate(@ConnectedSocket() client: Socket, @MessageBody() payload : number) {
+		try { this.gameService.searchToSpectate(client, payload); }
+		catch (e) { this.logger.error("searchToSpectate: " + e.name + " " + e.message); }
 	}
 
 	@SubscribeMessage('accept')
