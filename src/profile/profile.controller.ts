@@ -29,12 +29,12 @@ export class ProfileController {
 			}
 		}
 
-		let oldLogin = data.login;
+		let oldLogin = data.profile.login;
 
-		data.login = newLogin;
+		data.profile.login = newLogin;
 		// TODO: set new login in database
 
-		this.logger.verbose(`Login changed from ${oldLogin} to ${data.login} for user ${data.getId()}`);
+		this.logger.verbose(`Login changed from ${oldLogin} to ${data.profile.login} for user ${data.getId()}`);
 		return {
 			succes: true,
 			reason: "Yay!"
@@ -114,7 +114,7 @@ export class ProfileController {
 		let data = await this.appService.getSessionData(req);
 		let avatarPath = this.appService.getAvatarPath(data.getId());
 
-		this.logger.debug(`Reseting avatar for user ${data.getId()} (${data.login})`);
+		this.logger.debug(`Reseting avatar for user ${data.getId()} (${data.profile.login})`);
 
 		if (!fs.existsSync(avatarPath)) {
 			return "Already default";
@@ -197,21 +197,21 @@ export class ProfileController {
 
 		// TODO: getUserInfo: retrieve from DB
 		if (client === undefined) {
-			return {
-				error: "NotFound"
-			};
+			return res.json({
+				id: 0
+			}).end();
 		}
 
 		let data: any = {
 			id: client.getId(),
-			login: client.login,
-			displayName: client.displayName,
+			login: client.profile.login,
+			displayName: client.profile.displayName,
 			imageUrl: this.appService.getAvatarUrl(client),
 			userStatus: client.userStatus,
-			rank: client.rank,
-			level: client.level,
-			win: client.win,
-			loose: client.loose,
+			rank: client.profile.rank,
+			level: client.profile.level,
+			win: client.profile.win,
+			loose: client.profile.loose,
 		}
 
 		if (client.getId() === sess.getId()) {

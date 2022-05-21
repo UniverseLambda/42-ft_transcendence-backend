@@ -33,6 +33,18 @@ export class AuthState {
   constructor(public authStatus: AuthStatus, public id?: number) {}
 }
 
+export class UserProfile {
+  constructor(
+    public login: string,
+    public readonly displayName: string,
+    public readonly defaultAvatarUrl: string,
+    public level: number = 1,
+    public rank: string = "N00b",
+    public win: number = 0,
+    public loose: number = 0,
+  ) {}
+}
+
 export class ClientState {
   public totpSecret?: OAuth.TOTP = undefined;
   public totpInPreparation: boolean = false;
@@ -42,15 +54,8 @@ export class ClientState {
 
   constructor(
     private id: number,
-    public lastSeen: number,
     public userStatus: UserStatus,
-    public login: string,
-    public displayName: string,
-    private defaultAvatarUrl: string,
-    public level: number = 1,
-    public rank: string = "N00b",
-    public win: number = 0,
-    public loose: number = 0,
+    public profile: UserProfile,
   ) {}
 
   public getId(): number {
@@ -58,7 +63,7 @@ export class ClientState {
   }
 
   public getDefaultAvatarUrl(): string {
-    return this.defaultAvatarUrl;
+    return this.profile.defaultAvatarUrl;
   }
 
   public addFriend(friend: number) {
@@ -155,11 +160,14 @@ export class AppService {
       if (!this.userMap.has(response.data.id)) {
         let data: ClientState = new ClientState(
           response.data.id,
-          Date.now(),
           UserStatus.Online,
-          response.data.login,
-          response.data.displayname,
-          response.data.image_url
+          new UserProfile(
+            response.data.login,
+            response.data.displayname,
+            response.data.image_url,
+          )
+
+          // TODO: ADD DATA TO DATABASE
         );
 
         this.userMap.set(data.getId(), data);
@@ -282,7 +290,7 @@ export class AppService {
 
   getAvatarPath(id?: number): string {
     // Yup. Because we don't want to put it in the dist directory (that's nasty - IMO)
-    let result = `${path.dirname(__dirname)}/user_data/avatar/`;
+    let result = util.getAvatarStoragePath();
 
     if (id !== undefined) {
       result = `${result}/${id}`
@@ -297,7 +305,7 @@ export class AppService {
     }
 
     if (sess.totpSecret) {
-      throw `prepare2FA: TOTP already activated for user ${sess.getId()} (${sess.login})`;
+      throw `prepare2FA: TOTP already activated for user ${sess.getId()} (${sess.profile.login})`;
     }
 
     sess.totpSecret = new OAuth.TOTP({
@@ -317,11 +325,11 @@ export class AppService {
 
   async validate2FA(sess: ClientState, token: string): Promise<boolean> {
     if (!sess.totpInPreparation) {
-      throw `validate2FA: TOTP not in preparation for user ${sess.getId()} (${sess.login})`;
+      throw `validate2FA: TOTP not in preparation for user ${sess.getId()} (${sess.profile.login})`;
     }
 
     if (!sess.totpSecret) {
-      throw `validate2FA: no TOTP secret generated while being in preparation for user ${sess.getId()} (${sess.login})`;
+      throw `validate2FA: no TOTP secret generated while being in preparation for user ${sess.getId()} (${sess.profile.login})`;
     }
 
     let valid: boolean = await this.check2FA(sess, token);
@@ -337,11 +345,11 @@ export class AppService {
 
   async login2FA(sess: ClientState, token: string): Promise<boolean> {
     if (sess.totpInPreparation) {
-      throw `login2FA: TOTP in preparation for user ${sess.getId()} (${sess.login})`;
+      throw `login2FA: TOTP in preparation for user ${sess.getId()} (${sess.profile.login})`;
     }
 
     if (!sess.totpSecret) {
-      throw `login2FA: no TOTP secret generated while being activated for user ${sess.getId()} (${sess.login})`;
+      throw `login2FA: no TOTP secret generated while being activated for user ${sess.getId()} (${sess.profile.login})`;
     }
 
     return this.check2FA(sess, token);
@@ -365,7 +373,7 @@ export class AppService {
   addFriend(sess: ClientState, targetId: number): any {
     let target = this.getClientState(targetId);
 
-    this.logger.debug(`addFriend: client ${sess.getId()} (${sess.login}) added ${targetId} to their friends`);
+    this.logger.debug(`addFriend: client ${sess.getId()} (${sess.profile.login}) added ${targetId} to their friends`);
 
     if (target !== undefined) {
       target.addFriend(sess.getId());
@@ -381,7 +389,7 @@ export class AppService {
   removeFriend(sess: ClientState, targetId: number): any {
     let target = this.getClientState(targetId);
 
-    this.logger.debug(`removeFriend: client ${sess.getId()} (${sess.login}) removed ${targetId} to their friends`);
+    this.logger.debug(`removeFriend: client ${sess.getId()} (${sess.profile.login}) removed ${targetId} to their friends`);
 
     if (target !== undefined) {
       target.removeFriend(sess.getId());
@@ -413,9 +421,9 @@ export class AppService {
       } else {
         data = {
           id: f,
-          login: curr.login,
-          level: curr.level,
-          rank: curr.rank,
+          login: curr.profile.login,
+          level: curr.profile.level,
+          rank: curr.profile.rank,
           userStatus: UserStatus[curr.userStatus],
         }
       }
@@ -425,9 +433,41 @@ export class AppService {
     return friendList;
   }
 
+  reviveUser(id: number, force: boolean = false) {
+    if (force || this.getClientState(id) === undefined) {
+      // TODO: reviveUser: retrieve client state from DB
+    }
+  }
+
+  flushUser() {
+    // TODO: flushUser: flush client state to DB
+  }
+
   ensureFileOps(p: string): boolean {
     fs.mkdirSync(path.dirname(p), {recursive: true});
     return true;
+  }
+
+  inGame(id: number) {
+    let client = this.getClientState(id);
+
+    if (!client) {
+      this.logger.error(`inGame: no user ${id} currently connected`);
+      return;
+    }
+
+    client.userStatus = UserStatus.InGame;
+  }
+
+  gameQuitted(id: number) {
+    let client = this.getClientState(id);
+
+    if (!client) {
+      this.logger.error(`gameQuitted: no user ${id} currently connected`);
+      return;
+    }
+
+    client.userStatus = UserStatus.Online;
   }
 
   socketConnected(id: number) {

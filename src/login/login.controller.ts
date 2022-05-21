@@ -18,7 +18,8 @@ export class LoginController {
 			sess = await this.appService.getTokenData(cookie);
 		}
 
-		// TODO: Session duplication
+		// TODO: redirApi42: Avoid session duplication
+		// TODO: redirApi42: Retrieve session data if valid cookie
 		if (sess && sess.authStatus && sess.authStatus === AuthStatus.Accepted && this.appService.getClientState(sess.id) !== undefined) {
 			response.status(204).end();
 			return;
@@ -57,8 +58,8 @@ export class LoginController {
 				let info: ClientState = await this.appService.getSessionDataToken(token);
 
 				data.id = info.getId();
-				data.login = info.login;
-				data.displayName = info.displayName;
+				data.login = info.profile.login;
+				data.displayName = info.profile.displayName;
 				data.imageUrl = this.appService.getAvatarUrl(info);
 				data.userStatus = info.userStatus;
 				data.requires2FA = (info.totpSecret !== undefined);

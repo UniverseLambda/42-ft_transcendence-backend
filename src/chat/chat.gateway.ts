@@ -104,4 +104,18 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
       this.chatService.openConv(client, payload);
     } catch (reason) { this.logger.error(`openConv: exception thrown: ${reason}`); }
   }
+
+  @SubscribeMessage("letInvite")
+  letInvite(@ConnectedSocket() client: Socket, @MessageBody() payload: any) {
+    try {
+      this.chatService.letInvite(client, payload);
+    } catch (reason) { this.logger.error(`letInvite: exception thrown: ${reason}`); }
+  }
+
+  @SubscribeMessage("reattach")
+  reattach(@ConnectedSocket() client: Socket) {
+    try {
+      this.chatService.reattach(client);
+    } catch (reason) { this.logger.error(`reattach: exception thrown: ${reason}`); }
+  }
 }

@@ -19,7 +19,7 @@ export class MatchmakingGateway implements OnGatewayConnection, OnGatewayDisconn
 	}
 
 	handleDisconnect(client: Socket) {
-		try { this.gameService.unregisterPending(client); }
+		try { this.gameService.unregisterPending(client, this.appService); }
 		catch (e) { this.logger.error("handleDisconnect: " + e.name + " " + e.message); }
 	}
 
@@ -32,10 +32,27 @@ export class MatchmakingGateway implements OnGatewayConnection, OnGatewayDisconn
 		}
 	}
 
-	@SubscribeMessage('cancel')
-	handleCancelMatch(@ConnectedSocket() client: Socket, @MessageBody() payload : PendingClient) {
-		try { this.gameService.unregisterPending(client); }
-		catch (e) { this.logger.error("handleCancelMatch: " + e.name + " " + e.message); }
+	@SubscribeMessage('invite')
+	handleInvite(@ConnectedSocket() client: Socket, @MessageBody() payload : PendingClient) {
+		try { this.gameService.inviteUser(client, payload); }
+		catch (e) { this.logger.error("handleInvite: " + e.name + " " + e.message); }
 	}
 
+	@SubscribeMessage('accept')
+	handleAccept(@ConnectedSocket() client: Socket, @MessageBody() payload : PendingClient) {
+		try { this.gameService.inviteAccepted(client); }
+		catch (e) { this.logger.error("handleAccept: " + e.name + " " + e.message); }
+	}
+
+	@SubscribeMessage('refuse')
+	handleRefuse(@ConnectedSocket() client: Socket, @MessageBody() payload : PendingClient) {
+		try { this.gameService.inviteRefused(client); }
+		catch (e) { this.logger.error("handleRefuse: " + e.name + " " + e.message); }
+	}
+
+	@SubscribeMessage('cancel')
+	handleCancelMatch(@ConnectedSocket() client: Socket, @MessageBody() payload : PendingClient) {
+		try { client.disconnect(true); }
+		catch (e) { this.logger.error("handleCancelMatch: " + e.name + " " + e.message); }
+	}
 }
