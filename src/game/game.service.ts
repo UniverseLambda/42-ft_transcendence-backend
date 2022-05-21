@@ -384,8 +384,6 @@ export class GameService {
 
 		console.log(`STARTGAME: ${gameSession.getId}`);
 
-
-
 		// this.emitMessage("startGame", {id: gameSession.getId});
 	}
 
@@ -423,13 +421,10 @@ export class GameService {
 			// Logger.log('updateBallPosition inside condition');
 		}
 	}
-	updatePlayersScore(client: Socket, scores: []) {
+	updatePlayersScore(client: Socket, scores:{score1:number, score2:number}) {
 		var gameSession = this.getGame(client.id);
-		var playerIndex = (gameSession.isPlayer1(client)) ? 0 : 1;
-		// Logger.log('updateBallPosition outside');
 		gameSession.getPlayer1.sendMessage('updateScore', scores);
 		gameSession.getPlayer2.sendMessage('updateScore', scores);
-		// Logger.log('updateBallPosition inside condition');
 	}
 
 	// TODO End game ?

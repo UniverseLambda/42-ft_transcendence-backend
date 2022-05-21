@@ -53,4 +53,10 @@ export class GameGateway implements OnGatewayConnection, OnGatewayDisconnect {
 
 		this.gameService.updateBallPosition(client, payload);
 	}
+	@SubscribeMessage('sendScores')
+	handlePlayersScore(@ConnectedSocket() client: any, @MessageBody() payload: {score1:number, score2:number}) {
+		// this.logger.debug("************* ballClientPosition");
+
+		this.gameService.updatePlayersScore(client, payload);
+	}
 }
