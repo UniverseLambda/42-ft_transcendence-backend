@@ -142,9 +142,20 @@ export class ProfileController {
 		let sess = await this.appService.getSessionData(req);
 
 		if (!sess) {
-			this.logger.error(`getFriendList: sess === ${sess}. WTF IS WRONG WITH YOU GUYS`);
-			// TODO: getFriendList: revive les données
-			return [];
+			try {
+				this.logger.error(`getFriendList: sess === ${sess}. WTF IS WRONG WITH YOU GUYS`);
+				let as = await this.appService.getTokenData(req.cookies[this.appService.getSessionCookieName()]);
+
+				await this.appService.reviveUser(as.id);
+				sess = await this.appService.getSessionData(req);
+
+				if (!sess) {
+					return [];
+				}
+			} catch {
+				this.logger.error(`getFriendList: failed revival`);
+				return [];
+			}
 		}
 
 		return this.appService.getFriendList(sess);
@@ -155,9 +166,20 @@ export class ProfileController {
 		let sess = await this.appService.getSessionData(req);
 
 		if (!sess) {
-			this.logger.error(`getMatchHistory: sess === ${sess}. WTF IS WRONG WITH YOU GUYS`);
-			// TODO: getMatchHistory: revive les données
-			return [];
+			try {
+				this.logger.error(`getMatchHistory: sess === ${sess}. WTF IS WRONG WITH YOU GUYS`);
+				let as = await this.appService.getTokenData(req.cookies[this.appService.getSessionCookieName()]);
+
+				await this.appService.reviveUser(as.id);
+				sess = await this.appService.getSessionData(req);
+
+				if (!sess) {
+					return [];
+				}
+			} catch {
+				this.logger.error(`getMatchHistory: failed revival`);
+				return [];
+			}
 		}
 
 		return await this.appService.getHistoryList(sess.getId());
