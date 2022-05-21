@@ -132,7 +132,6 @@ export function ExceptionUser (message : string) {
 }
 
 export function ExceptionUserNotRegister (message : string) {
-	Logger.error(`[GAME] Client is not registered.`);
 	return {
 		name: "ExceptionUserNotRegister : ",
 		message: message,
@@ -454,16 +453,13 @@ export class GameService {
 		var gameSession = this.getGame(client.id);
 		this.logger.log(`[GAME] Client ${this.clientList.get(client.id).getId} set as ready.`);
 
-		if (gameSession.isPlayer1(client)) {
-			gameSession.getReady[0] = true
-			if (gameSession.getPlayer1.isInGame || gameSession.getReady[1] === true)
+		if (gameSession.isPlayer1(client))
+			gameSession.getReady[0] = true;
+		else
+			gameSession.getReady[1] = true;
+		if (gameSession.getReady[0] === true && gameSession.getReady[1] === true) {
 				this.launchGame(gameSession);
 				appService.inGame(gameSession.getPlayer1.getId);
-		}
-		else if (!gameSession.isPlayer1(client)) {
-			gameSession.getReady[1] = true
-			if (gameSession.getPlayer2.isInGame || gameSession.getReady[0] === true)
-				this.launchGame(gameSession);
 				appService.inGame(gameSession.getPlayer2.getId);
 		}
 	}
@@ -471,7 +467,8 @@ export class GameService {
 	launchGame(gameSession : GameSession) {
 		gameSession.launchGame();
 
-		console.log(`STARTGAME: ${gameSession.getId}`);
+
+		this.logger.log(`STARTGAME: ${gameSession.getId}`);
 	}
 
 	// Socket is not checked for optimisation purpose
