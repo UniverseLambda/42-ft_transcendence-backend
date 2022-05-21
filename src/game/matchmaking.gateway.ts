@@ -14,6 +14,7 @@ export class MatchmakingGateway implements OnGatewayConnection, OnGatewayDisconn
 		try { await this.gameService.registerMatchmaking(this.appService, client); }
 		catch (e) {
 			this.logger.error("handleConnection: " + e.name + " " + e.message);
+			client.emit('disconnectInMatchmaking', []);
 			client.disconnect(true);
 		}
 	}
@@ -28,6 +29,7 @@ export class MatchmakingGateway implements OnGatewayConnection, OnGatewayDisconn
 		try { this.gameService.searchGame(client, payload); }
 		catch (e) {
 			this.logger.error("handleSearchMatch: " + e.name + " " + e.message);
+			client.emit('disconnectInMatchmaking', []);
 			client.disconnect(true);
 		}
 	}

@@ -284,6 +284,8 @@ export class GameService {
 			throw ExceptionGameSession("inviteRefused : this is not his invitation!");
 		this.logger.log(`[MATCHMAKING] Players ${player.getId} refused to play.`);
 
+		game.getPlayer1.sendMessage('disconnectInMatchmaking', []);
+		game.getPlayer2.sendMessage('disconnectInMatchmaking', []);
 		game.getPlayer1.disconnect();
 		game.getPlayer2.disconnect();
 		this.inviteList.delete(game.getId);
@@ -325,8 +327,10 @@ export class GameService {
 		if (!this.clientList.has(socket.id))
 			throw ExceptionUserNotRegister("unregisterPending");
 		var clientSession = this.clientList.get(socket.id);
-		if (socket.connected)
+		if (socket.connected) {
+			clientSession.sendMessage("disconnectInMatchmaking", []);
 			clientSession.disconnect();
+		}
 		appService.socketDisconnected(clientSession.getId);
 		this.logger.log(`[MATCHMAKING] Client ${this.findClientSocket(socket.id).getId} unregistered.`);
 		if (!clientSession.isAuthentified)
@@ -414,15 +418,12 @@ export class GameService {
 		}
 		// If he was in game, send message and disconnect him
 		if (this.gameList.has(clientData.getGameId)) {
+			this.logger.log(`[GAME] End the game because of disconnection.`);
 			var gameSession = this.gameList.get(clientData.getGameId);
-			if (gameSession.isPlayer1(client)) {
-				gameSession.getPlayer1.sendMessage('disconnectInGame', []);
-				gameSession.getPlayer1.disconnect();
-			}
-			else {
-				gameSession.getPlayer2.sendMessage('disconnectInGame', []);
-				gameSession.getPlayer2.disconnect();
-			}
+			gameSession.getPlayer1.sendMessage('disconnectInGame', []);
+			gameSession.getPlayer2.sendMessage('disconnectInGame', []);
+			gameSession.getPlayer1.disconnect();
+			gameSession.getPlayer2.disconnect();
 			this.gameList.delete(clientData.getGameId);
 		}
 		appService.socketDisconnected(clientData.getId);
