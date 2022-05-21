@@ -62,7 +62,7 @@ export class LoginController {
 				data.displayName = info.profile.displayName;
 				data.imageUrl = this.appService.getAvatarUrl(info.getId());
 				data.userStatus = info.userStatus;
-				data.requires2FA = (info.profile.totpSecret !== undefined);
+				data.requires2FA = (info.profile.totpSecret !== undefined || info.profile.totpSecret !== null);
 			}
 
 			return data;

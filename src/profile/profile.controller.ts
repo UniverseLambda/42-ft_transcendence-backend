@@ -202,7 +202,7 @@ export class ProfileController {
 		}
 
 		if (sess.getId() && client.getId() === sess.getId()) {
-			data.requires2FA = (client.profile.totpSecret !== undefined);
+			data.requires2FA = (client.profile.totpSecret !== undefined || client.profile.totpSecret !== null);
 		}
 
 		return res.json(data).end();

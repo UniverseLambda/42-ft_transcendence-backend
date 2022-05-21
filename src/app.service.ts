@@ -377,6 +377,8 @@ export class AppService {
 
     sess.profile.totpSecret = undefined;
     sess.totpInPreparation = false;
+
+    this.execSql("UPDATE users SET totpsecret = 'NULL' WHERE uid = '$1';", sess.getId());
   }
 
   addFriend(sess: ClientState, targetId: number): any {
