@@ -40,6 +40,10 @@ export class MatchmakingGateway implements OnGatewayConnection, OnGatewayDisconn
 		catch (e) { this.logger.error("handleInvite: " + e.name + " " + e.message); }
 	}
 
+	@SubscribeMessage('spectate')
+	handleSpectate(@ConnectedSocket() client: Socket, @MessageBody() payload : number) {
+	}
+
 	@SubscribeMessage('accept')
 	handleAccept(@ConnectedSocket() client: Socket, @MessageBody() payload : PendingClient) {
 		try { this.gameService.inviteAccepted(client); }

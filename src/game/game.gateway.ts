@@ -28,7 +28,10 @@ export class GameGateway implements OnGatewayConnection, OnGatewayDisconnect {
 	// Need implementation client side
 	@SubscribeMessage('ready')
 	handleReady(@ConnectedSocket() client : Socket) {
-		try { this.gameService.readyToStart(client, this.appService); }
+		try {
+			if (!this.gameService.readyToSpectate(client, this.appService))
+				this.gameService.readyToStart(client, this.appService);
+		}
 		catch (e) { this.logger.error("handleReady: " + e.name + " " + e.message); }
 	}
 
@@ -39,8 +42,6 @@ export class GameGateway implements OnGatewayConnection, OnGatewayDisconnect {
 
 	@SubscribeMessage('playerPosition')
 	handlePlayerPosition(@ConnectedSocket() client: any, @MessageBody() payload: number) {
-		// this.logger.debug("************* playerPosition");
-
 		if (typeof payload !== "number") {
 			this.logger.error(`handlePlayerPosition: invalid payload: ${payload}`);
 			return;
@@ -50,14 +51,16 @@ export class GameGateway implements OnGatewayConnection, OnGatewayDisconnect {
 	}
 	@SubscribeMessage('ballClientPosition')
 	handleBallPosition(@ConnectedSocket() client: any, @MessageBody() payload: Vector3) {
-		// this.logger.debug("************* ballClientPosition");
-
 		this.gameService.updateBallPosition(client, payload);
 	}
 	@SubscribeMessage('sendScores')
 	handlePlayersScore(@ConnectedSocket() client: any, @MessageBody() payload: {score1:number, score2:number}) {
-		// this.logger.debug("************* ballClientPosition");
-
 		this.gameService.updatePlayersScore(client, payload);
 	}
+
+	@SubscribeMessage('endGame')
+	handleEndGame(@ConnectedSocket() client: any, @MessageBody() payload: {score1:number, score2:number}) {
+		this.gameService.endGame(client, this.appService);
+	}
+
 }
