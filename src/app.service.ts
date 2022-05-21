@@ -505,17 +505,25 @@ export class AppService {
     return this.execSql(req, roomId, userId);
   }
 
-  async getHistoryList(userId: number): Promise<{otherId: number, isWinner: boolean}[]> {
+  async getHistoryList(userId: number): Promise<{otherId: number, versus: string, score: string, status: string}[]> {
     const req = "SELECT * FROM matches_history WHERE id_user1 = '$1' OR id_user2 = '$1';";
 
     try {
       let sqlRes = await this.sqlConn.query(req, [userId]);
-      let result: {otherId: number, isWinner: boolean}[] = [];
+      let result: {otherId: number, versus: string, score: string, status: string}[] = [];
 
       for (let r of sqlRes.rows) {
+        let scoreCurrent = (r.id_user1 === userId) ? r.score_user1 : r.score_user2;
+        let scoreOther = (r.id_user1 === userId) ? r.score_user2 : r.score_user1;
+        let otherId = (r.id_user1 === userId) ? r.id_user1 : r.id_user2;
+
+        let otherPrf = await this.getUserInfo(otherId);
+
         result.push({
-          otherId: (r.id_user1 === userId) ? r.id_user2 : r.id_user1,
-          isWinner: r.winner === userId,
+          otherId: otherId,
+          versus: otherPrf.login,
+          status: (r.winner === userId) ? "Win" : "Losse",
+          score: `${scoreCurrent} - ${scoreOther}`,
         })
       }
 
@@ -743,7 +751,7 @@ export class AppService {
     return false;
   }
 
-  async gameEnded(ids: {p1:number, p2:number}, winner: number): Promise<boolean> {
+  async gameEnded(ids: {p1: number, p2: number}, winner: number, scores: {score1: number, score2: number}): Promise<boolean> {
     if (!await this.updateStats(ids.p1, ids.p1 === winner)
     || !await this.updateStats(ids.p2, ids.p2 === winner)) {
       return false;
@@ -751,7 +759,7 @@ export class AppService {
 
     const req = "INSERT INTO matches_history (id_user1, score_user1, id_user2, score_user2, winner) VALUES ('$1', '$2', '$3', '$4', '$5');";
 
-    return await this.execSql(req, ids.p1, 0, ids.p2, 0, winner);
+    return await this.execSql(req, ids.p1, scores.score1, ids.p2, scores.score2, winner);
   }
 
   calcLevel(xp: number): number {
