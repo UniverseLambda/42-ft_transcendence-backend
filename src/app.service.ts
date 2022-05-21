@@ -42,7 +42,7 @@ export class UserProfile {
     public login: string,
     public readonly displayName: string,
     public readonly defaultAvatarUrl: string,
-    public level: number = 1,
+    public xp: number = 1,
     public rank: string = "N00b",
     public win: number = 0,
     public loose: number = 0,
@@ -432,7 +432,7 @@ export class AppService {
       friendList.push({
         id: fid,
         login: friendPrf.login,
-        level: friendPrf.level,
+        level: friendPrf.xp,
         rank: friendPrf.rank,
         userStatus: UserStatus[status],
       });
@@ -442,7 +442,7 @@ export class AppService {
   }
 
   async roomRemoveUser(roomId: number, userId: number): Promise<boolean> {
-    // TODO: Remove from admins
+    await this.setRoomAdmin(roomId, userId, false);
 
     const req = "DELETE FROM participants WHERE room_id = '$1' AND user_id = '$2';";
 
@@ -455,13 +455,13 @@ export class AppService {
     if (!await this.execSql(reqBan, roomId))
       return false;
 
-    const req = "DELETE FROM rooms WHERE id = '$1';";
+    const req = "DELETE FROM rooms WHERE identifiant = '$1';";
 
     return this.execSql(req, roomId);
   }
 
   async validateRoomPassword(roomId: number, password?: string): Promise<boolean> {
-    const req = "SELECT * FROM rooms WHERE id = $1 password = (CRYPT('$2', password));";
+    const req = "SELECT * FROM rooms WHERE identifiant = $1 AND room_password = (CRYPT('$2', room_password));";
 
     try {
       return (await this.sqlConn.query(req, [roomId, password])).rowCount !== 0;
@@ -707,9 +707,29 @@ export class AppService {
   }
 
   async setPassword(roomId: number, newPassword: string): Promise<boolean> {
-    const req = "UPDATE rooms SET room_password = CRYPT('$1', GEN_SALT('md5')) WHERE room_id = '$2';";
+    const req = "UPDATE rooms SET room_password = CRYPT('$1', GEN_SALT('md5')) WHERE identifiant = '$2';";
 
     return this.execSql(req, newPassword, roomId);
+  }
+
+  async updateStats(userId: number, hasWon: boolean) {
+    const reqProfiles = "UPDATE users SET wins = '$2', losses = '$3', level = '$4' WHERE uid = '$1';";
+
+    let info = await this.getUserInfo(userId);
+
+    if (hasWon) {
+      info.win += 1;
+    } else {
+      info.loose += 1;
+    }
+
+    info.xp += (hasWon) ? 25 : 5;
+
+    if (info.xp > (50 * 100)) {
+      info.xp = (50 * 100);
+    }
+
+    return this.execSql(reqProfiles, userId, info.win, info.loose, info.xp);
   }
 
   async execSql(req: string, ...data: any[]): Promise<boolean> {
@@ -721,5 +741,20 @@ export class AppService {
       this.logger.debug(`registerUser: error while database querying: ${reason}`);
     }
     return false;
+  }
+
+  async gameEnded(ids: {p1:number, p2:number}, winner: number): Promise<boolean> {
+    if (!await this.updateStats(ids.p1, ids.p1 === winner)
+    || !await this.updateStats(ids.p2, ids.p2 === winner)) {
+      return false;
+    }
+
+    const req = "INSERT INTO matches_history (id_user1, score_user1, id_user2, score_user2, winner) VALUES ('$1', '$2', '$3', '$4', '$5');";
+
+    return await this.execSql(req, ids.p1, 0, ids.p2, 0, winner);
+  }
+
+  calcLevel(xp: number): number {
+    return Math.floor(xp / 100) ;
   }
 }

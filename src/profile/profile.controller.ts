@@ -196,7 +196,7 @@ export class ProfileController {
 			imageUrl: this.appService.getAvatarUrl(id),
 			userStatus: (client === undefined) ? UserStatus.Offline : client.userStatus,
 			rank: user.rank,
-			level: user.level,
+			level: this.appService.calcLevel(user.xp),
 			win: user.win,
 			loose: user.loose,
 		}
