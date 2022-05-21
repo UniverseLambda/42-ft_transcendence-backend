@@ -2,6 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { AppService, ClientState, UserStatus } from 'src/app.service';
 import { Socket } from 'socket.io';
 import { parse } from "cookie";
+import e from 'express';
 
 const GENERAL_ROOM_NAME: string = "World_General";
 const GENERAL_ROOM_ID: number = -1;
@@ -41,7 +42,7 @@ class ChatClient implements MessageReceipient {
 
 	disconnected() {
 		for (let room of this.rooms.values()) {
-			room.userDisconnected(this);
+			room.userDisconnected(this.getId());
 		}
 	}
 
@@ -49,8 +50,8 @@ class ChatClient implements MessageReceipient {
 		return this.state.getId();
 	}
 
-	addBlocked(target: ChatClient) {
-		this.blockList.add(target.getId());
+	addBlocked(target: number) {
+		this.blockList.add(target);
 	}
 
 	removeBlocked(target: ChatClient) {
@@ -84,7 +85,7 @@ class ChatRoomClientData implements MessageReceipient {
 	private muteStart: number = 0;
 	private muteDuration: number = 0;
 
-	constructor(public client: ChatClient, public admin: boolean) {}
+	constructor(public client: ChatClient) {}
 
 	sendMessage(sender: ChatClient, message: string, roomId?: number): ChatResult {
 		return this.client.sendMessage(sender, message, roomId);
@@ -114,6 +115,7 @@ enum ChatResult {
 	WrongPassword,
 	NotInRoom,
 	TargetNotInRoom,
+	TargetNotConnected,
 	NotAdmin,
 	Blocked,
 	Muted,
@@ -122,25 +124,55 @@ enum ChatResult {
 	GeneralRoom,
 	NotOnline,
 	InGame,
+	UnknownError,
 }
 
-class ChatRoom implements MessageReceipient {
-	private members: Map<number, ChatRoomClientData> = new Map();
-	private adminCount: number = 0;
+export class ChatRoom implements MessageReceipient {
+	private connected: Map<number, ChatRoomClientData> = new Map();
+
+	private members: Set<number> = new Set();
+	private adminList: Set<number> = new Set();
 	private banList: Set<number> = new Set();
 
-	constructor(public readonly roomId: number, public readonly name: string, creator: ChatClient, private roomPrivate: boolean, private password?: string) {
+	constructor(public readonly roomId: number, public readonly name: string, creator: ChatClient, private roomPrivate: boolean) {
 		if (creator !== null) {
 			this.addUser(creator, true);
-			this.adminCount = 1;
+			this.adminList.add(creator.getId());
+		}
+	}
+
+	setMembers(members: number[]) {
+		this.members.clear();
+
+		for (let m of members) {
+			this.members.add(m);
+		}
+	}
+
+	setAdmins(admins: number[]) {
+		this.adminList.clear();
+
+		for (let a of admins) {
+			this.adminList.add(a);
+		}
+	}
+
+	setBans(banned: number[]) {
+		this.banList.clear();
+
+		for (let b of banned) {
+			this.banList.add(b);
 		}
 	}
 
 	addUser(user: ChatClient, isAdmin: boolean = false): ChatResult {
-		if (this.members.has(user.state.getId())) return ChatResult.AlreadyInRoom;
-		if (this.banList.has(user.state.getId())) return ChatResult.Banned;
+		if (this.members.has(user.getId())) return ChatResult.AlreadyInRoom;
+		if (this.banList.has(user.getId())) return ChatResult.Banned;
 
-		this.members.set(user.state.getId(), new ChatRoomClientData(user, isAdmin));
+		this.members.add(user.getId());
+
+		if (isAdmin) this.adminList.add(user.getId());
+		this.connected.set(user.getId(), new ChatRoomClientData(user));
 
 		user.roomJoined(this);
 
@@ -148,83 +180,85 @@ class ChatRoom implements MessageReceipient {
 	}
 
 	addUserNoDispatch(user: ChatClient, isAdmin: boolean = false): ChatResult {
-		if (this.members.has(user.state.getId())) return ChatResult.AlreadyInRoom;
-		if (this.banList.has(user.state.getId())) return ChatResult.Banned;
+		if (this.members.has(user.getId())) return ChatResult.AlreadyInRoom;
+		if (this.banList.has(user.getId())) return ChatResult.Banned;
 
-		this.members.set(user.state.getId(), new ChatRoomClientData(user, isAdmin));
+		this.members.add(user.getId());
+
+		if (isAdmin) this.adminList.add(user.getId());
+
+		this.connected.set(user.getId(), new ChatRoomClientData(user));
 
 		user.roomJoined(this, true);
 
 		return ChatResult.Ok;
 	}
 
-	removeUser(user: ChatClient): ChatResult {
-		if (!this.members.has(user.state.getId())) return ChatResult.NotInRoom;
+	removeUser(id: number): ChatResult {
+		if (!this.members.has(id)) return ChatResult.NotInRoom;
 
-
-		let roomClient = this.members.get(user.state.getId());
-
-		if (roomClient.admin && this.adminCount === 1) {
+		if (this.isAdminId(id) && this.adminList.size === 1) {
 			return ChatResult.LastAdmin;
 		}
 
-		this.members.delete(user.state.getId());
+		let user = this.connected.get(id);
 
-		user.roomLeaved(this);
+		if (user) {
+			user.client.roomLeaved(this);
+		}
+
+		this.connected.delete(id);
+		this.adminList.delete(id);
 
 		return ChatResult.Ok;
 	}
 
-	setAdmin(userClient: ChatClient, targetClient: ChatClient, newValue: boolean): ChatResult {
-		let sender: ChatRoomClientData = this.members.get(userClient.state.getId());
-		let target: ChatRoomClientData = this.members.get(targetClient.state.getId());
+	setAdmin(userClient: ChatClient, targetId: number, newValue: boolean): ChatResult {
+		let sender: ChatRoomClientData = this.connected.get(userClient.getId());
 
 		if (sender === undefined) return ChatResult.NotInRoom;
-		if (target === undefined) return ChatResult.TargetNotInRoom;
+		if (!this.members.has(targetId)) return ChatResult.TargetNotInRoom;
 
-		if (!sender.admin) return ChatResult.NotAdmin;
+		if (!this.isAdmin(userClient)) return ChatResult.NotAdmin;
 
-		if (!newValue && this.adminCount === 1) {
+		if (!newValue && this.adminList.size === 1) {
 			return ChatResult.LastAdmin;
 		}
 
-		target.admin = newValue;
-		this.adminCount += (newValue ? 1 : -1);
+		if (newValue) {
+			this.adminList.add(targetId);
+		} else {
+			this.adminList.delete(targetId);
+		}
 
 		return ChatResult.Ok;
 	}
 
 	isAdmin(client: ChatClient): boolean {
-		let data = this.members.get(client.getId());
+		return this.isAdminId(client.getId());
+	}
 
-		return data !== undefined && data.admin;
+	isAdminId(clientId: number): boolean {
+		return this.adminList.has(clientId);
 	}
 
 	isInRoom(client: ChatClient): boolean {
 		return this.members.has(client.getId());
 	}
 
-	hasPassword(): boolean {
-		return this.password !== undefined;
-	}
+	// setPassword(client: ChatClient, password?: string): ChatResult {
+	// 	let user: ChatRoomClientData = this.connected.get(client.getId());
 
-	isGoodPassword(password: string): boolean {
-		return this.password === password;
-	}
+	// 	if (user === undefined) return ChatResult.NotInRoom;
+	// 	if (!this.isAdmin(client)) return ChatResult.NotAdmin;
 
-	setPassword(client: ChatClient, password?: string): ChatResult {
-		let user: ChatRoomClientData = this.members.get(client.getId());
+	// 	this.password = password;
 
-		if (user === undefined) return ChatResult.NotInRoom;
-		if (!user.admin) return ChatResult.NotAdmin;
-
-		this.password = password;
-
-		return ChatResult.Ok;
-	}
+	// 	return ChatResult.Ok;
+	// }
 
 	sendMessage(user: ChatClient, message: string): ChatResult {
-		let sender: ChatRoomClientData = this.members.get(user.state.getId());
+		let sender: ChatRoomClientData = this.connected.get(user.getId());
 
 		if (sender === undefined) {
 			return ChatResult.NotInRoom;
@@ -234,7 +268,7 @@ class ChatRoom implements MessageReceipient {
 			return ChatResult.Muted;
 		}
 
-		for (let curr of this.members.values()) {
+		for (let curr of this.connected.values()) {
 			if (curr.getId() === user.getId()) continue;
 
 			curr.sendMessage(user, message, this.roomId);
@@ -243,52 +277,55 @@ class ChatRoom implements MessageReceipient {
 		return ChatResult.Ok;
 	}
 
-	userDisconnected(user: ChatClient) {
-		this.members.delete(user.getId());
+	userConnected(user: ChatClient) {
+		this.connected.set(user.getId(), new ChatRoomClientData(user));
 	}
 
-	banUser(client: ChatClient, target: ChatClient) {
-		let user: ChatRoomClientData = this.members.get(client.getId());
+	userDisconnected(id: number) {
+		this.connected.delete(id);
+	}
+
+	banUser(client: ChatClient, targetId: number) {
+		let user: ChatRoomClientData = this.connected.get(client.getId());
 
 		if (user === undefined) return ChatResult.NotInRoom;
-		if (!user.admin) return ChatResult.NotAdmin;
+		if (!this.isAdmin(client)) return ChatResult.NotAdmin;
 
-		this.banList.add(target.getId());
+		this.banList.add(targetId);
 
 		return ChatResult.Ok;
 	}
 
-	unbanUser(client: ChatClient, target: ChatClient) {
-		let user: ChatRoomClientData = this.members.get(client.getId());
+	unbanUser(client: ChatClient, targetId: number) {
+		let user: ChatRoomClientData = this.connected.get(client.getId());
 
 		if (user === undefined) return ChatResult.NotInRoom;
-		if (!user.admin) return ChatResult.NotAdmin;
+		if (!this.isAdmin(client)) return ChatResult.NotAdmin;
 
-		this.banList.delete(target.getId());
+		this.banList.delete(targetId);
 
 		return ChatResult.Ok;
 	}
 
-	kickUser(userClient: ChatClient, targetClient: ChatClient) {
-		let sender: ChatRoomClientData = this.members.get(userClient.state.getId());
-		let target: ChatRoomClientData = this.members.get(targetClient.state.getId());
+	kickUser(userClient: ChatClient, targetId: number) {
+		let sender: ChatRoomClientData = this.connected.get(userClient.state.getId());
 
 		if (sender === undefined) return ChatResult.NotInRoom;
-		if (target === undefined) return ChatResult.TargetNotInRoom;
+		if (!this.members.has(targetId)) return ChatResult.TargetNotInRoom;
 
-		if (!sender.admin) return ChatResult.NotAdmin;
+		if (!this.isAdmin(userClient)) return ChatResult.NotAdmin;
 
-		return this.removeUser(targetClient);
+		return this.removeUser(targetId);
 	}
 
 	setMute(userClient: ChatClient, targetClient: ChatClient, duration: number) {
-		let sender: ChatRoomClientData = this.members.get(userClient.state.getId());
-		let target: ChatRoomClientData = this.members.get(targetClient.state.getId());
+		let sender: ChatRoomClientData = this.connected.get(userClient.state.getId());
+		let target: ChatRoomClientData = this.connected.get(targetClient.state.getId());
 
 		if (sender === undefined) return ChatResult.NotInRoom;
-		if (target === undefined) return ChatResult.TargetNotInRoom;
+		if (target === undefined) return ChatResult.TargetNotConnected;
 
-		if (!sender.admin) return ChatResult.NotAdmin;
+		if (!this.isAdmin(userClient)) return ChatResult.NotAdmin;
 
 		target.mute(duration);
 		return ChatResult.Ok;
@@ -303,7 +340,7 @@ class ChatRoom implements MessageReceipient {
 	}
 
 	userCount(): number {
-		return this.members.size;
+		return this.connected.size;
 	}
 }
 
@@ -316,8 +353,16 @@ export class ChatService {
 	private rooms: Map<number, ChatRoom> = new Map();
 	private roomId: number = 2;
 
-	constructor() {
+	constructor(private appService: AppService) {
 		this.rooms.set(GENERAL_ROOM_ID, new ChatRoom(GENERAL_ROOM_ID, GENERAL_ROOM_NAME, null, false));
+
+		new Promise(async () => {
+			let res = await this.appService.retrieveRoomList();
+
+			for (let r of res) {
+				this.rooms.set(r.id, new ChatRoom(r.id, r.name, null, r.isPrivate));
+			}
+		});
 	}
 
 	async registerConnection(appService: AppService, socket: Socket): Promise<boolean> {
@@ -349,7 +394,6 @@ export class ChatService {
 
 		this.logger.debug(`registerConnection: user ${client.getId()} (socket: ${socket.id}) joined the chat!`);
 
-		// TODO: check for private rooms in which the user is (db)
 		this.sendInitialInformation(socket, chatClient);
 
 		appService.socketConnected(client.getId());
@@ -476,7 +520,7 @@ export class ChatService {
 			return false;
 		}
 
-		let room: ChatRoom = new ChatRoom(roomId, name, client, type === "private", password);
+		let room: ChatRoom = new ChatRoom(roomId, name, client, type === "private");
 		this.rooms.set(room.getId(), room);
 
 		if (type !== "private") {
@@ -487,7 +531,7 @@ export class ChatService {
 			}
 		}
 
-		// TODO: add room to database
+		this.appService.addRoom(room.getId(), room.name, room.isPrivate(), password);
 
 		return true;
 	}
@@ -509,7 +553,7 @@ export class ChatService {
 
 		room = this.checkRoom(socket, payload.roomId, "roomError");
 
-		let result = room.removeUser(client);
+		let result = room.removeUser(client.getId());
 
 		if (result !== ChatResult.Ok) {
 			this.logger.error(`leaveRoom: could not leave room: ${ChatResult[result]}`);
@@ -517,11 +561,12 @@ export class ChatService {
 			return;
 		}
 
-		// TODO: remove user from the room in database
+		this.appService.roomRemoveUser(room.getId(), client.getId());
 
 		// Can't get here if World_General, checked before.
 		if (room.userCount() === 0) {
-			// TODO: remove room from database
+
+			this.appService.removeEmptyRoom(room.getId());
 
 			this.rooms.delete(room.getId());
 			if (!room.isPrivate()) {
@@ -556,14 +601,15 @@ export class ChatService {
 			return false;
 		}
 
-		let result = room.setPassword(client, payload.password);
+		if (!room.isInRoom(client)) return socket.emit("roomError", makeError(ChatResult.NotInRoom, payload.roomId));
+		if (!room.isAdmin(client)) return socket.emit("roomError", makeError(ChatResult.NotAdmin, payload.roomId));
 
-		if (result === ChatResult.Ok) {
-			socket.emit("roomError", {success: true});
+		let result = this.appService.setPassword(room.getId(), payload.password);
+
+		if (result) {
+			socket.emit("roomError", makeError(ChatResult.Ok), payload.roomId);
 		} else {
-			this.logger.error(`roomError: could not set password for room: ${ChatResult[result]}`);
-			socket.emit("roomError", makeError(result, payload.roomId));
-			return false;
+			socket.emit("roomError", makeError(ChatResult.UnknownError), payload.roomId);
 		}
 
 		return true;
@@ -581,25 +627,22 @@ export class ChatService {
 
 		room = this.checkRoom(socket, payload.roomId, "joinRoomError");
 
-		if (room.hasPassword()) {
-			if (typeof payload.password !== "string" || payload.password.length === 0) {
-				this.logger.error(`joinRoom: invalid password value \`${payload.password}\``);
+		if ((payload.password !== undefined && typeof payload.password !== "string")
+			|| (typeof payload.password === "string" && payload.password.length === 0)) {
+			this.logger.error(`joinRoom: invalid password value \`${payload.password}\``);
 
-				if (room.isPrivate() && payload.toFind) {
-					client.newRoom(room);
-				}
-
-				socket.emit("joinRoomError", makeError(ChatResult.PasswordRequired));
-				return;
+			if (room.isPrivate() && payload.toFind) {
+				client.newRoom(room);
 			}
 
-			// TODO: joinRoom: use DB to check password
+			socket.emit("joinRoomError", makeError(ChatResult.PasswordRequired));
+			return;
+		}
 
-			if (!room.isGoodPassword(payload.password)) {
-				this.logger.error(`joinRoom: wrong password ${payload.roomId}`);
-				socket.emit("joinRoomError", makeError(ChatResult.WrongPassword));
-				return;
-			}
+		if (!this.appService.validateRoomPassword(room.getId(), payload.password)) {
+			this.logger.error(`joinRoom: wrong password ${payload.roomId}`);
+			socket.emit("joinRoomError", makeError(ChatResult.WrongPassword));
+			return;
 		}
 
 		let result = room.addUser(client);
@@ -607,7 +650,7 @@ export class ChatService {
 		if (result !== ChatResult.Ok) {
 			socket.emit("joinRoomError", makeError(result));
 		} else {
-			// TODO: joinRoom: add user to room in db
+			this.appService.addUserToRoom(room.getId(), client.getId());
 			this.logger.verbose(`joinRoom: user ${client.getId()} joined room ${payload.roomId}`);
 		}
 	}
@@ -624,8 +667,9 @@ export class ChatService {
 
 		target = this.checkUser(socket, payload.targetId, "blockUserError");
 
-		// TODO: blockUser: add user in the block list in DB
-		client.addBlocked(target);
+		client.addBlocked(payload.targetId);
+
+		this.appService.userBlocked(client.getId(), payload.targetId);
 
 		socket.emit("userBlocked", {id: payload.targetId});
 	}
@@ -643,14 +687,13 @@ export class ChatService {
 		target = this.checkUser(socket, payload.targetId, "unblockUserError");
 
 		client.removeBlocked(target);
-		// TODO: unblockUser: remove user from the block list in DB
+		this.appService.userUnblocked(client.getId(), payload.targetId);
 		socket.emit("userUnblocked", {id: payload.targetId});
 	}
 
 	setBan(socket: Socket, payload: any) {
 		let client: ChatClient = this.checkRegistration(socket, "setBanError");
 		let room: ChatRoom;
-		let target: ChatClient;
 
 		if (!isValidRoomId(payload.roomId) || payload.roomId === GENERAL_ROOM_ID) {
 			this.logger.error(`setBan: invalid roomId value ${payload.roomId}`);
@@ -671,24 +714,23 @@ export class ChatService {
 		}
 
 		room = this.checkRoom(socket, payload.roomId, "roomError");
-		target = this.checkUser(socket, payload.targetId, "roomError", room.getId());
 
 		let result: ChatResult;
 
 		if (payload.action) {
-			result = room.banUser(client, target);
+			result = room.banUser(client, payload.targetId);
 		} else {
-			result = room.unbanUser(client, target);
+			result = room.unbanUser(client, payload.targetId);
 		}
 
 		if (result === ChatResult.Ok) {
-			// TODO: setBan: add/remove user from ban list in database
+			this.appService.setRoomUserBan(room.getId(), payload.targetId, payload.action);
 
 			socket.emit("userBanned", {roomId: payload.roomId, targetId: payload.targetId});
-			this.logger.debug(`setBan: user ${target.getId()} banned from ${room.getId()} by ${client.getId()}`);
+			this.logger.debug(`setBan: user ${payload.targetId} banned from ${room.getId()} by ${client.getId()}`);
 		} else {
 			socket.emit("roomError", makeError(result, room.getId()));
-			this.logger.error(`setBan: could not ban user ${target.getId()} from ${room.getId()} (issued by ${client.getId()}, reason: ${ChatResult[result]})`);
+			this.logger.error(`setBan: could not ban user ${payload.targetId} from ${room.getId()} (issued by ${client.getId()}, reason: ${ChatResult[result]})`);
 		}
 	}
 
@@ -710,14 +752,15 @@ export class ChatService {
 		}
 
 		room = this.checkRoom(socket, payload.roomId, "roomError");
-		target = this.checkUser(socket, payload.targetId, "roomError", payload.roomId);
 
-		let result: ChatResult = room.kickUser(client, target);
+		let result: ChatResult = room.kickUser(client, payload.targetId);
 
 		if (result === ChatResult.Ok) {
 			this.logger.debug(`kickUser: user ${payload.targetId} kicked from ${payload.roomId} by ${client.getId()})`);
+
+			this.appService.roomRemoveUser(room.getId(), payload.targetId);
+
 			socket.emit("userKicked", {roomId: payload.roomId, targetId: payload.targetId});
-			// TODO: kickUser: add/remove user from ban list in database
 		} else {
 			this.logger.error(`kickUser: could not kick ${payload.targetId} from ${payload.roomId} (reason: ${ChatResult[result]})`);
 			socket.emit("roomError", makeError(result, payload.roomId));
@@ -786,13 +829,13 @@ export class ChatService {
 		}
 
 		room = this.checkRoom(socket, payload.roomId, "roomError");
-		target = this.checkUser(socket, payload.targetId, "roomError", payload.roomId);
 
-		let result: ChatResult = room.setAdmin(client, target, payload.action);
+		let result: ChatResult = room.setAdmin(client, payload.targetId, payload.action);
 
 		if (result === ChatResult.Ok) {
-			// TODO: setAdmin: add/remove from admin list in DB
 			socket.emit("setAdminResult", {roomId: payload.roomId, targetId: payload.targetId, action: payload.action});
+
+			this.appService.setRoomAdmin(room.getId(), payload.targetId, payload.action);
 		} else {
 			socket.emit("roomError", makeError(result, payload.roomId));
 		}
@@ -923,6 +966,7 @@ function getErrorMessage(res: ChatResult): string {
 		case ChatResult.WrongPassword:		return "wrong password";
 		case ChatResult.NotInRoom:			return "user not in the room";
 		case ChatResult.TargetNotInRoom:	return "target user not in the room";
+		case ChatResult.TargetNotConnected:	return "target user is not connected";
 		case ChatResult.NotAdmin:			return "user not admin of the room";
 		case ChatResult.Blocked:			return "user blocked by target";
 		case ChatResult.Muted:				return "you've been muted";

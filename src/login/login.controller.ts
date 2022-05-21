@@ -1,6 +1,6 @@
 import { Body, Controller, Get, Logger, Post, Query, Req, Res } from '@nestjs/common';
 import { AppService, AuthState, AuthStatus, ClientState } from '../app.service';
-import { Request, Response } from 'express';
+import e, { Request, Response } from 'express';
 import * as util from "../util";
 
 @Controller('login')
@@ -18,9 +18,9 @@ export class LoginController {
 			sess = await this.appService.getTokenData(cookie);
 		}
 
-		// TODO: redirApi42: Avoid session duplication
-		// TODO: redirApi42: Retrieve session data if valid cookie
-		if (sess && sess.authStatus && sess.authStatus === AuthStatus.Accepted && this.appService.getClientState(sess.id) !== undefined) {
+		if (sess && sess.authStatus && sess.authStatus === AuthStatus.Accepted) {
+			this.appService.reviveUser(sess.id);
+
 			response.status(204).end();
 			return;
 		}
@@ -60,9 +60,9 @@ export class LoginController {
 				data.id = info.getId();
 				data.login = info.profile.login;
 				data.displayName = info.profile.displayName;
-				data.imageUrl = this.appService.getAvatarUrl(info);
+				data.imageUrl = this.appService.getAvatarUrl(info.getId());
 				data.userStatus = info.userStatus;
-				data.requires2FA = (info.totpSecret !== undefined);
+				data.requires2FA = (info.profile.totpSecret !== undefined);
 			}
 
 			return data;

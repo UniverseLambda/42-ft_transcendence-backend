@@ -1,13 +1,16 @@
 import { Injectable, Logger } from "@nestjs/common";
 import axios from "axios";
-import { CookieOptions, Request } from "express";
+import e, { CookieOptions, Request } from "express";
 import { generateKeySync, KeyObject } from "crypto";
 import * as jose from "jose";
 import * as fs from "fs";
 import * as path from "path";
 import * as OAuth from "otpauth";
 
+import { Client } from "pg";
+
 import * as util from "./util";
+import { ChatRoom } from "./chat/chat.service";
 
 const JWT_ALG: string = "HS512";
 const JWT_ISSUER: string = "ft_transcendance_BrindiSquad";
@@ -19,11 +22,12 @@ export enum AuthStatus {
   Waiting,
   Refused,
   WaitingFor2FA,
-  Accepted
+  Accepted,
+  AlreadyConnected,
 }
 
 export enum UserStatus {
-  Unregistered,
+  Offline,
   Invisible,
   Online,
   InGame
@@ -42,11 +46,11 @@ export class UserProfile {
     public rank: string = "N00b",
     public win: number = 0,
     public loose: number = 0,
+    public totpSecret: OAuth.TOTP = undefined,
   ) {}
 }
 
 export class ClientState {
-  public totpSecret?: OAuth.TOTP = undefined;
   public totpInPreparation: boolean = false;
   public socketCount: number = 0;
 
@@ -90,10 +94,17 @@ export class AppService {
   private readonly logger: Logger = new Logger(AppService.name);
   private secret: KeyObject;
 
-  private userMap = new Map<number, ClientState>();
+  private sqlConn: Client;
+
+  private userMap: Map<number, ClientState> = new Map();
 
   public constructor() {
     this.secret = generateKeySync("hmac", { length: 512 });
+
+    if (!util.isLocal()) {
+      this.sqlConn = new Client({host: process.env.IP_DATABASE, port: Number.parseInt(process.env.PORT_DATABASE), user: process.env.POSTGRES_USER, password: process.env.POSTGRES_PASSWORD, });
+      this.sqlConn.connect();
+    }
   }
 
   async newToken(data: AuthState): Promise<string> {
@@ -156,26 +167,24 @@ export class AppService {
       let response = await axios.get(`https://api.intra.42.fr/v2/me?access_token=${token_result.data.access_token}`);
       this.logger.verbose(`retrieveUserData: got status ${response.status} from api.intra.42.fr`);
 
+      let sqlResult: UserProfile = await this.getUserInfo(response.data.id);
 
-      if (!this.userMap.has(response.data.id)) {
-        let data: ClientState = new ClientState(
-          response.data.id,
-          UserStatus.Online,
-          new UserProfile(
-            response.data.login,
-            response.data.displayname,
-            response.data.image_url,
-          )
+      let userProfile: UserProfile;
 
-          // TODO: ADD DATA TO DATABASE
-        );
-
-        this.userMap.set(data.getId(), data);
+      if (sqlResult) {
+        userProfile = sqlResult;
+      } else {
+        userProfile = new UserProfile(response.data.login, response.data.displayname, response.data.image_url);
       }
 
-      let userData = this.userMap.get(response.data.id);
+      let data: ClientState = new ClientState(
+        response.data.id,
+        UserStatus.Online,
+        userProfile
+      );
 
-      if (userData.totpSecret && !userData.totpInPreparation) {
+
+      if (data.profile.totpSecret && !data.totpInPreparation) {
         cookie = new AuthState(AuthStatus.WaitingFor2FA, response.data.id);
       } else {
         cookie = new AuthState(AuthStatus.Accepted, response.data.id);
@@ -248,8 +257,8 @@ export class AppService {
     return 64;
   }
 
-  getAvatarUrl(user: ClientState): string {
-    return `https://${util.getBackendHost()}${util.getBackendPrefix()}/profile/avatar/${user.getId()}`;
+  getAvatarUrl(user: number): string {
+    return `https://${util.getBackendHost()}${util.getBackendPrefix()}/profile/avatar/${user}`;
   }
 
   getClientState(id: number): ClientState {
@@ -300,15 +309,15 @@ export class AppService {
   }
 
   async prepare2FA(sess: ClientState): Promise<string> {
-    if (sess.totpInPreparation && sess.totpSecret) {
-      return sess.totpSecret.toString();
+    if (sess.totpInPreparation && sess.profile.totpSecret) {
+      return sess.profile.totpSecret.toString();
     }
 
-    if (sess.totpSecret) {
+    if (sess.profile.totpSecret) {
       throw `prepare2FA: TOTP already activated for user ${sess.getId()} (${sess.profile.login})`;
     }
 
-    sess.totpSecret = new OAuth.TOTP({
+    sess.profile.totpSecret = new OAuth.TOTP({
       label: "BrindiSquad 2FA",
       issuer: "BrindiSquad",
       algorithm: "SHA512",
@@ -319,8 +328,8 @@ export class AppService {
 
     sess.totpInPreparation = true;
 
-    this.logger.debug(`SECRET: ${sess.totpSecret.toString()}`);
-    return sess.totpSecret.toString();
+    this.logger.debug(`SECRET: ${sess.profile.totpSecret.toString()}`);
+    return sess.profile.totpSecret.toString();
   }
 
   async validate2FA(sess: ClientState, token: string): Promise<boolean> {
@@ -328,14 +337,14 @@ export class AppService {
       throw `validate2FA: TOTP not in preparation for user ${sess.getId()} (${sess.profile.login})`;
     }
 
-    if (!sess.totpSecret) {
+    if (!sess.profile.totpSecret) {
       throw `validate2FA: no TOTP secret generated while being in preparation for user ${sess.getId()} (${sess.profile.login})`;
     }
 
     let valid: boolean = await this.check2FA(sess, token);
 
     if (valid) {
-      // TODO: Store TOTP secret in database
+      this.execSql("UPDATE users SET totpsecret = '$1' WHERE uid = '$2';", sess.profile.totpSecret, sess.getId());
       sess.totpInPreparation = false;
       return true;
     }
@@ -348,7 +357,7 @@ export class AppService {
       throw `login2FA: TOTP in preparation for user ${sess.getId()} (${sess.profile.login})`;
     }
 
-    if (!sess.totpSecret) {
+    if (!sess.profile.totpSecret) {
       throw `login2FA: no TOTP secret generated while being activated for user ${sess.getId()} (${sess.profile.login})`;
     }
 
@@ -356,7 +365,7 @@ export class AppService {
   }
 
   async check2FA(sess: ClientState, token: string): Promise<boolean> {
-    let result: number = sess.totpSecret.validate({token: token});
+    let result: number = sess.profile.totpSecret.validate({token: token});
 
     this.logger.debug(`check2FA: TOKEN: ${token}, DELTA: ${result}`);
 
@@ -366,7 +375,7 @@ export class AppService {
   deactivate2FA(sess: ClientState) {
     this.logger.debug(`deactivate2FA: 2FA for ${sess.getId()}`);
 
-    sess.totpSecret = undefined;
+    sess.profile.totpSecret = undefined;
     sess.totpInPreparation = false;
   }
 
@@ -381,7 +390,10 @@ export class AppService {
 
     sess.addFriend(targetId);
 
-    // TODO: addFriend: Flush to db
+    let id0 = Math.min(sess.getId(), targetId);
+    let id1 = Math.max(sess.getId(), targetId);
+
+    this.execSql("INSERT INTO friendlist (id_user1, id_user2) VALUES ('$1', '$2');", id0, id1);
 
     return { success: "YAY" };
   }
@@ -395,52 +407,136 @@ export class AppService {
       target.removeFriend(sess.getId());
     }
 
+
+    let id0 = Math.min(sess.getId(), targetId);
+    let id1 = Math.max(sess.getId(), targetId);
+
     sess.removeFriend(targetId);
 
-    // TODO: addFriend: Flush to db
+    this.execSql("DELETE FROM friendlist WHERE id_user1 = '$1' AND id_user2 = '$2';", id0, id1);
 
     return { success: "YAY" };
   }
 
-  getFriendList(sess: ClientState): any[] {
+  async getFriendList(sess: ClientState): Promise<any[]> {
     let friendList: any[] = [];
 
-    for (let f of sess.getFriendList()) {
-      let curr: ClientState = this.getClientState(f);
-      let data: any;
+    let result = await this.retrieveFriendList(sess.getId());
 
-      if (curr === undefined) {
-        // TODO: getFriendList: get data from DB
-        data = {
-          id: f,
-          login: "XXXXXXXXXXX",
-          level: 0,
-          rank: "???????",
-          userStatus: "Offline",
-        }
-      } else {
-        data = {
-          id: f,
-          login: curr.profile.login,
-          level: curr.profile.level,
-          rank: curr.profile.rank,
-          userStatus: UserStatus[curr.userStatus],
-        }
-      }
+    for (let fid of result) {
+      let friendPrf = await this.getUserInfo(fid);
+      let state: ClientState = this.getClientState(fid);
 
-      friendList.push(data);
+      let status: UserStatus = (state) ? state.userStatus : UserStatus.Offline;
+
+      friendList.push({
+        id: fid,
+        login: friendPrf.login,
+        level: friendPrf.level,
+        rank: friendPrf.rank,
+        userStatus: UserStatus[status],
+      });
     }
+
     return friendList;
   }
 
-  reviveUser(id: number, force: boolean = false) {
-    if (force || this.getClientState(id) === undefined) {
-      // TODO: reviveUser: retrieve client state from DB
+  async roomRemoveUser(roomId: number, userId: number): Promise<boolean> {
+    // TODO: Remove from admins
+
+    const req = "DELETE FROM participants WHERE room_id = '$1' AND user_id = '$2';";
+
+    return this.execSql(req, roomId, userId);
+  }
+
+  async removeEmptyRoom(roomId: number): Promise<boolean> {
+    const reqBan = "DELETE FROM blacklist WHERE id_user1 = '$1';";
+
+    if (!await this.execSql(reqBan, roomId))
+      return false;
+
+    const req = "DELETE FROM rooms WHERE id = '$1';";
+
+    return this.execSql(req, roomId);
+  }
+
+  async validateRoomPassword(roomId: number, password?: string): Promise<boolean> {
+    const req = "SELECT * FROM rooms WHERE id = $1 password = (CRYPT('$2', password));";
+
+    try {
+      return (await this.sqlConn.query(req, [roomId, password])).rowCount !== 0;
+    } catch (reason) {
+      this.logger.error(`validateRoomPassword: querying error: ${reason}`);
+    }
+    return false;
+  }
+
+  async addUserToRoom(roomId: number, userId: number): Promise<boolean> {
+    const req = "INSERT INTO participants (room_id, user_id) VALUES('$1', '$2);";
+
+    return this.execSql(req, roomId, userId);
+  }
+
+  async userBlocked(blocker: number, blocking: number): Promise<boolean> {
+    const req = "INSERT INTO blacklist (id_user1, id_user2) VALUES('$1', '$2');";
+
+    return this.execSql(req, blocker, blocking);
+  }
+
+  async userUnblocked(blocker: number, blocking: number): Promise<boolean> {
+    const req = "DELETE FROM blacklist WHERE id_user1 = $1 AND id_user2 = $2;";
+
+    return this.execSql(req, blocker, blocking);
+  }
+
+  async setRoomUserBan(roomId: number, userId: number, action: boolean): Promise<boolean> {
+    if (action) {
+      return this.userBlocked(roomId, userId);
+    } else {
+      return this.userUnblocked(roomId, userId);
     }
   }
 
-  flushUser() {
-    // TODO: flushUser: flush client state to DB
+  async setRoomAdmin(roomId: number, userId: number, action: boolean): Promise<boolean> {
+    const req = (action)
+      ? "INSERT INTO room_admins (room_id, user_id) VALUES ('$1', '$2');"
+      : "DELETE FROM room_admins WHERE room_id = '$1' AND user_id = '$2';";
+
+    return this.execSql(req, roomId, userId);
+  }
+
+  async getHistoryList(userId: number): Promise<{otherId: number, isWinner: boolean}[]> {
+    const req = "SELECT * FROM matches_history WHERE id_user1 = '$1' OR id_user2 = '$1';";
+
+    try {
+      let sqlRes = await this.sqlConn.query(req, [userId]);
+      let result: {otherId: number, isWinner: boolean}[] = [];
+
+      for (let r of sqlRes.rows) {
+        result.push({
+          otherId: (r.id_user1 === userId) ? r.id_user2 : r.id_user1,
+          isWinner: r.winner === userId,
+        })
+      }
+
+      return result;
+    } catch (reason) {
+      this.logger.error(`validateRoomPassword: querying error: ${reason}`);
+    }
+    return [];
+  }
+
+  async reviveUser(id: number, force: boolean = false): Promise<boolean> {
+    if (force || this.getClientState(id) === undefined) {
+      let res = await this.getUserInfo(id);
+
+      if (res === undefined) {
+        this.logger.error(`reviveUser: could not revive user ${id}`);
+        return false;
+      }
+
+      this.userMap.set(id, new ClientState(id, UserStatus.Online, res));
+    }
   }
 
   ensureFileOps(p: string): boolean {
@@ -480,8 +576,150 @@ export class AppService {
     client.socketCount -= 1;
 
     if (client.socketCount === 0) {
-      // TODO: socketDisconnected: flush data to database
       this.userMap.delete(id);
     }
+  }
+
+  async retrieveRoomList(): Promise<{name: string, id: number, isPrivate: boolean}[]> {
+    const req = "SELECT * FROM rooms";
+
+    try {
+      let sqlResult = await this.sqlConn.query(req);
+
+      let result: {name: string, id: number, isPrivate: boolean}[] = [];
+
+      for (let row of sqlResult.rows) {
+        result.push({name: row.name, id: row.id, isPrivate: row.description === "private"});
+      }
+
+      return result;
+    } catch (reason) {
+      this.logger.debug(`retrieveRoomList: error while database querying: ${reason}`);
+    }
+    return [];
+  }
+
+  async getRoomAdmins(id: number): Promise<number[]> {
+    const req = "SELECT user_id FROM room_admins WHERE room_id = '$1';";
+
+    try {
+      let sqlResult = await this.sqlConn.query(req, [id]);
+
+      return sqlResult.rows;
+    } catch (reason) {
+      this.logger.debug(`getRoomAdmins: error while database querying: ${reason}`);
+    }
+    return [];
+  }
+
+  async getRoomBanlist(id: number): Promise<number[]> {
+    const req = "SELECT id_user2 FROM blacklist WHERE id_user1 = '$1';";
+
+    try {
+      let sqlResult = await this.sqlConn.query(req, [id]);
+
+      return sqlResult.rows;
+    } catch (reason) {
+      this.logger.debug(`getRoomBanlist: error while database querying: ${reason}`);
+    }
+    return [];
+  }
+
+  async getRoomMembers(id: number): Promise<number[]> {
+    const req = "SELECT user_id FROM participants WHERE room_id = '$1';";
+
+    try {
+      let sqlResult = await this.sqlConn.query(req, [id]);
+
+      return sqlResult.rows;
+    } catch (reason) {
+      this.logger.debug(`getRoomMembers: error while database querying: ${reason}`);
+    }
+    return [];
+  }
+
+  async addRoom(id: number, name: string, isPrivate: boolean, password: string): Promise<boolean> {
+    const req = (password === undefined)
+      ? "INSERT INTO rooms (room_name, description, room_password, identifiant) VALUES ('$1', '$2', CRYPT('$3', GEN_SALT('md5')), '$4');"
+      : "INSERT INTO rooms (room_name, description, room_password, identifiant) VALUES ('$1', '$2', '$3', '$4');";
+
+    if (password === undefined) password = null;
+
+    return this.execSql(req, name, (isPrivate) ? "private" : "public", null, id);
+  }
+
+  async setNewLogin(client: ClientState, newLogin: string): Promise<boolean> {
+    if (await this.execSql("UPDATE users SET login = '$1' WHERE uid = '$2';", newLogin, client.getId())) {
+      client.profile.login = newLogin;
+      return true;
+    }
+    return false;
+  }
+
+  async getUserInfo(id: number): Promise<UserProfile> {
+    const req = "SELECT * FROM users WHERE uid = '$1'";
+
+    try {
+      let result = await this.sqlConn.query(req, [id]);
+
+      if (result.rowCount === 0) return null;
+
+      let row = result.rows[0];
+
+      return new UserProfile(
+        row.login, row.displayName, row.profile_pic, row.level, row.rank, row.wins, row.loses
+      );
+    } catch (reason) {
+      this.logger.debug(`getUserInfo: error while database querying: ${reason}`);
+    }
+    return null;
+  }
+
+  async retrieveFriendList(id: number): Promise<number[]> {
+    const req = "SELECT * FROM friendlist WHERE id_user1 = '$1' OR id_user2 = '$1'";
+
+    try {
+      let sqlResult = await this.sqlConn.query(req, [id]);
+
+      let result: number[] = [];
+
+      for (let row of sqlResult.rows) {
+        result.push((row.id_user1 === id) ? row.id_user2 : row.id_user1);
+      }
+
+      return result;
+    } catch (reason) {
+      this.logger.debug(`getUserInfo: error while database querying: ${reason}`);
+    }
+    return [];
+  }
+
+  async registerUser(id: number, login: string, displayName: string, defaultAvatarUrl: string): Promise<boolean> {
+    const req = "INSERT INTO users (login, nickname, profile_pic, uid) VALUES ('$1', '$2', '$3', '$4');";
+
+    return this.execSql(req, login, displayName, defaultAvatarUrl, id);
+  }
+
+  async setLogin(id: number, newLogin: string): Promise<boolean> {
+    const req = "UPDATE users SET login = '$1' WHERE uid = '$2';";
+
+    return this.execSql(req, newLogin, id);
+  }
+
+  async setPassword(roomId: number, newPassword: string): Promise<boolean> {
+    const req = "UPDATE rooms SET room_password = CRYPT('$1', GEN_SALT('md5')) WHERE room_id = '$2';";
+
+    return this.execSql(req, newPassword, roomId);
+  }
+
+  async execSql(req: string, ...data: any[]): Promise<boolean> {
+    try {
+      await this.sqlConn.query(req, data);
+
+      return true;
+    } catch (reason) {
+      this.logger.debug(`registerUser: error while database querying: ${reason}`);
+    }
+    return false;
   }
 }

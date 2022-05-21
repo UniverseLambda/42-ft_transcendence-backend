@@ -1,6 +1,6 @@
 import { Body, Controller, Get, Logger, Param, Post, Req, Res, UploadedFile, UseInterceptors } from "@nestjs/common";
 import { Request, Response } from "express";
-import { AppService, ClientState } from "src/app.service";
+import { AppService, ClientState, UserProfile, UserStatus } from "src/app.service";
 import * as fs from 'fs';
 import { FileInterceptor } from "@nestjs/platform-express";
 import { diskStorage } from "multer";
@@ -32,7 +32,7 @@ export class ProfileController {
 		let oldLogin = data.profile.login;
 
 		data.profile.login = newLogin;
-		// TODO: set new login in database
+		await this.appService.setNewLogin(data, newLogin);
 
 		this.logger.verbose(`Login changed from ${oldLogin} to ${data.profile.login} for user ${data.getId()}`);
 		return {
@@ -142,8 +142,8 @@ export class ProfileController {
 		let sess = await this.appService.getSessionData(req);
 
 		if (!sess) {
+			this.logger.error(`getFriendList: sess === ${sess}. WTF IS WRONG WITH YOU GUYS`);
 			// TODO: getFriendList: revive les données
-			this.logger.error(`getFriendList: WTF, sess is ${sess}`);
 			return [];
 		}
 
@@ -152,28 +152,15 @@ export class ProfileController {
 
 	@Post(["match_history", "match_history/:id"])
 	async getMatchHistory(@Req() req: Request, @Param("id") id?: string) {
-		// versus, score, status
 		let sess = await this.appService.getSessionData(req);
 
-		// TODO: getMatchHistory: attach data to database
+		if (!sess) {
+			this.logger.error(`getMatchHistory: sess === ${sess}. WTF IS WRONG WITH YOU GUYS`);
+			// TODO: getMatchHistory: revive les données
+			return [];
+		}
 
-		return [
-			{
-				versus: "La-M",
-				score: "50 - -56",
-				status: "Lost (cheh)"
-			},
-			{
-				versus: "Ort-ou",
-				score: "42 - 42",
-				status: "Tie"
-			},
-			{
-				versus: "ChéChé",
-				score: "50 - 2",
-				status: "Win (chatteux vas)"
-			},
-		];
+		return await this.appService.getHistoryList(sess.getId());
 	}
 
 	@Post("get_user_info")
@@ -193,29 +180,29 @@ export class ProfileController {
 			return;
 		}
 
+		let user: UserProfile = await this.appService.getUserInfo(id);
 		let client: ClientState = await this.appService.getClientState(id);
 
-		// TODO: getUserInfo: retrieve from DB
-		if (client === undefined) {
+		if (user === undefined) {
 			return res.json({
 				id: 0
 			}).end();
 		}
 
 		let data: any = {
-			id: client.getId(),
-			login: client.profile.login,
-			displayName: client.profile.displayName,
-			imageUrl: this.appService.getAvatarUrl(client),
-			userStatus: client.userStatus,
-			rank: client.profile.rank,
-			level: client.profile.level,
-			win: client.profile.win,
-			loose: client.profile.loose,
+			id: id,
+			login: user.login,
+			displayName: user.displayName,
+			imageUrl: this.appService.getAvatarUrl(id),
+			userStatus: (client === undefined) ? UserStatus.Offline : client.userStatus,
+			rank: user.rank,
+			level: user.level,
+			win: user.win,
+			loose: user.loose,
 		}
 
-		if (client.getId() === sess.getId()) {
-			data.requires2FA = (client.totpSecret !== undefined);
+		if (sess.getId() && client.getId() === sess.getId()) {
+			data.requires2FA = (client.profile.totpSecret !== undefined);
 		}
 
 		return res.json(data).end();
