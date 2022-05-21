@@ -12,10 +12,11 @@ import * as path from "path";
 
 // import { Vector3 } from 'three';
 
-import * as THREE from 'three';
+// import * as THREE from 'three';
+import { Vector3 } from 'three';
 // import { cli } from 'webpack';
 
-import { Worker } from "worker_threads";
+// import { Worker } from "worker_threads";
 
 export class Position { constructor(public posx : number, public posy : number, public posz : number) {}; }
 export class Players { constructor(public p1 : string, public p2 : string) {} }
@@ -131,7 +132,6 @@ export function ExceptionUser (message : string) {
 }
 
 export function ExceptionUserNotRegister (message : string) {
-	Logger.error(`[GAME] Client is not registered.`);
 	return {
 		name: "ExceptionUserNotRegister : ",
 		message: message,
@@ -165,10 +165,7 @@ export class GameService {
 	private inviteList: Map<number, GameSession> = new Map();
 
 
-	constructor() {
-		this.worker = new Worker(`${path.dirname(__filename)}/game.worker.js`);
-		this.worker.on("message", (message) => this.dispatchMessage(message))
-	}
+	constructor() {}
 
 	/////////////////////////////////
 	// REMOVE IT WHEN OPERATIONNAL //
@@ -287,6 +284,8 @@ export class GameService {
 			throw ExceptionGameSession("inviteRefused : this is not his invitation!");
 		this.logger.log(`[MATCHMAKING] Players ${player.getId} refused to play.`);
 
+		game.getPlayer1.sendMessage('disconnectInMatchmaking', []);
+		game.getPlayer2.sendMessage('disconnectInMatchmaking', []);
 		game.getPlayer1.disconnect();
 		game.getPlayer2.disconnect();
 		this.inviteList.delete(game.getId);
@@ -328,8 +327,10 @@ export class GameService {
 		if (!this.clientList.has(socket.id))
 			throw ExceptionUserNotRegister("unregisterPending");
 		var clientSession = this.clientList.get(socket.id);
-		if (socket.connected)
+		if (socket.connected) {
+			clientSession.sendMessage("disconnectInMatchmaking", []);
 			clientSession.disconnect();
+		}
 		appService.socketDisconnected(clientSession.getId);
 		this.logger.log(`[MATCHMAKING] Client ${this.findClientSocket(socket.id).getId} unregistered.`);
 		if (!clientSession.isAuthentified)
@@ -417,15 +418,12 @@ export class GameService {
 		}
 		// If he was in game, send message and disconnect him
 		if (this.gameList.has(clientData.getGameId)) {
+			this.logger.log(`[GAME] End the game because of disconnection.`);
 			var gameSession = this.gameList.get(clientData.getGameId);
-			if (gameSession.isPlayer1(client)) {
-				gameSession.getPlayer1.sendMessage('disconnectInGame', []);
-				gameSession.getPlayer1.disconnect();
-			}
-			else {
-				gameSession.getPlayer2.sendMessage('disconnectInGame', []);
-				gameSession.getPlayer2.disconnect();
-			}
+			gameSession.getPlayer1.sendMessage('disconnectInGame', []);
+			gameSession.getPlayer2.sendMessage('disconnectInGame', []);
+			gameSession.getPlayer1.disconnect();
+			gameSession.getPlayer2.disconnect();
 			this.gameList.delete(clientData.getGameId);
 		}
 		appService.socketDisconnected(clientData.getId);
@@ -456,16 +454,13 @@ export class GameService {
 		var gameSession = this.getGame(client.id);
 		this.logger.log(`[GAME] Client ${this.clientList.get(client.id).getId} set as ready.`);
 
-		if (gameSession.isPlayer1(client)) {
-			gameSession.getReady[0] = true
-			if (gameSession.getPlayer1.isInGame || gameSession.getReady[1] === true)
+		if (gameSession.isPlayer1(client))
+			gameSession.getReady[0] = true;
+		else
+			gameSession.getReady[1] = true;
+		if (gameSession.getReady[0] === true && gameSession.getReady[1] === true) {
 				this.launchGame(gameSession);
 				appService.inGame(gameSession.getPlayer1.getId);
-		}
-		else if (!gameSession.isPlayer1(client)) {
-			gameSession.getReady[1] = true
-			if (gameSession.getPlayer2.isInGame || gameSession.getReady[0] === true)
-				this.launchGame(gameSession);
 				appService.inGame(gameSession.getPlayer2.getId);
 		}
 	}
@@ -473,8 +468,8 @@ export class GameService {
 	launchGame(gameSession : GameSession) {
 		gameSession.launchGame();
 
-		console.log(`STARTGAME: ${gameSession.getId}`);
 
+		this.logger.log(`STARTGAME: ${gameSession.getId}`);
 	}
 
 	// Socket is not checked for optimisation purpose
@@ -483,28 +478,34 @@ export class GameService {
 
 		console.log(`gameSesion: ${gameSession} (${gameSession.getId})`);
 
+		gameSession.getPlayer2.sendMessage('startGame', []);
+		gameSession.getPlayer1.sendMessage('startGame', []);
 		this.logger.log('[GAME] ball thrown');
 	}
 
-	// // Calculate the position at each reception of 'ballClient'.
-	// // Send in Job
-	// // Socket is not checked for optimisation purpose
-	// updateBallPosition(socket : Socket, newPosition : THREE.Vector3) {
-	// 	// Register and check if the player is registered
-	// 	var gameSession = this.getGame(socket.id);
-	// 	gameSession.getBallPosition = newPosition;
-	// 	// MAYBE REMOVE LATER FOR A JOB
-	// 	gameSession.sendBallPosition();
-	// }
-
-	// Checkand update new player state
-	// Socket is not checked for optimisation purpose
 	updatePlayer(client: Socket, position: number) {
 		var gameSession = this.getGame(client.id);
 
 		var playerIndex = (gameSession.isPlayer1(client)) ? 0 : 1;
 
-		// this.worker.emit("setPlayerPos", gameSession.getId, playerIndex, position);
+		if (playerIndex === 0)
+			gameSession.getPlayer2.sendMessage('setPlayerPos', position);
+		else
+			gameSession.getPlayer1.sendMessage('setPlayerPos', position);
+
+	}
+
+	updateBallPosition(client: Socket, position: Vector3) {
+		var gameSession = this.getGame(client.id);
+		var playerIndex = (gameSession.isPlayer1(client)) ? 0 : 1;
+		if (playerIndex === 0){														// i'm player 1
+			gameSession.getPlayer2.sendMessage('ballServerPosition', position);
+		}
+	}
+	updatePlayersScore(client: Socket, scores:{score1:number, score2:number}) {
+		var gameSession = this.getGame(client.id);
+		gameSession.getPlayer1.sendMessage('updateScore', scores);
+		gameSession.getPlayer2.sendMessage('updateScore', scores);
 	}
 
 	// TODO End game ?
@@ -513,56 +514,9 @@ export class GameService {
 		getGame.getPlayer1.isInGame = false;
 		getGame.getPlayer2.isInGame = false;
 
+		//TODO END to send
+
 		appService.gameQuitted(getGame.getPlayer1.getId);
 		appService.gameQuitted(getGame.getPlayer2.getId);
 	}
-
-	/************************/
-	/**   Worker handler   **/
-	/************************/
-
-	onBallThrown(gameId: number) {
-		let g: GameSession = this.gameList.get(gameId);
-
-		// g.getPlayer1.getSocket.emit("ballThrown");
-		// g.getPlayer2.getSocket.emit("ballThrown");
-
-		g.startSet();
-	}
-
-	onGameEnded(gameId: number) {
-		let g: GameSession = this.gameList.get(gameId);
-
-		g.getPlayer1.getSocket.emit("gameEnded");
-		g.getPlayer2.getSocket.emit("gameEnded");
-	}
-
-	onPlayerSync(gameId: number, playerIdx: number, pos: number) {
-		let g: GameSession = this.gameList.get(gameId);
-
-		this.logger.debug("************* onPlayerSync");
-
-		g.getPlayer1.getSocket.emit("playerSync", playerIdx, pos);
-		g.getPlayer2.getSocket.emit("playerSync", playerIdx, pos);
-	}
-
-	onBallSync(gameId: number, ballPos: [number, number], ballVel: [number, number]) {
-		let g: GameSession = this.gameList.get(gameId);
-
-		this.logger.debug("************* onBallSync");
-		g.getPlayer1.getSocket.emit("ballSync", ballPos, ballVel);
-		g.getPlayer2.getSocket.emit("ballSync", ballPos, ballVel);
-	}
-
-	dispatchMessage(message: any) {
-		let dta = message.data;
-
-		switch (message.event) {
-			case "ballThrown": this.onBallThrown(dta.id); break;
-			case "onPlayerSync": this.onPlayerSync(dta.id, dta.player, dta.pos); break;
-			case "ballSync": this.onBallSync(dta.id, dta.pos, dta.vel); break;
-			case "gameEnded": this.onGameEnded(dta.id); break;
-		}
-	}
-
 }

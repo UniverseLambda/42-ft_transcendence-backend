@@ -3,8 +3,7 @@ import { Logger } from '@nestjs/common';
 import { Socket } from "socket.io";
 import { GameService } from "./game.service";
 import { AppService } from "src/app.service";
-
-import * as THREE from 'three';
+import { Vector3 } from 'three';
 
 @WebSocketGateway({ cors: { origin: "http://localhost:4200" }, namespace: "game" })
 export class GameGateway implements OnGatewayConnection, OnGatewayDisconnect {
@@ -16,6 +15,7 @@ export class GameGateway implements OnGatewayConnection, OnGatewayDisconnect {
 		try { await this.gameService.registerClient(this.appService, client); }
 		catch (e) {
 			this.logger.error("handleConnection: " + e.name + " " + e.message);
+			client.emit('disconnectInGame', []);
 			client.disconnect(true);
 		}
 	}
@@ -38,8 +38,8 @@ export class GameGateway implements OnGatewayConnection, OnGatewayDisconnect {
 	}
 
 	@SubscribeMessage('playerPosition')
-	handlePlayerPosition(@ConnectedSocket() client: any, @MessageBody() payload: unknown) {
-		this.logger.debug("************* playerPosition");
+	handlePlayerPosition(@ConnectedSocket() client: any, @MessageBody() payload: number) {
+		// this.logger.debug("************* playerPosition");
 
 		if (typeof payload !== "number") {
 			this.logger.error(`handlePlayerPosition: invalid payload: ${payload}`);
@@ -47,5 +47,17 @@ export class GameGateway implements OnGatewayConnection, OnGatewayDisconnect {
 		}
 
 		this.gameService.updatePlayer(client, payload);
+	}
+	@SubscribeMessage('ballClientPosition')
+	handleBallPosition(@ConnectedSocket() client: any, @MessageBody() payload: Vector3) {
+		// this.logger.debug("************* ballClientPosition");
+
+		this.gameService.updateBallPosition(client, payload);
+	}
+	@SubscribeMessage('sendScores')
+	handlePlayersScore(@ConnectedSocket() client: any, @MessageBody() payload: {score1:number, score2:number}) {
+		// this.logger.debug("************* ballClientPosition");
+
+		this.gameService.updatePlayersScore(client, payload);
 	}
 }
