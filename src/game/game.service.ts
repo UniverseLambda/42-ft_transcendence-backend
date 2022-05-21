@@ -23,7 +23,7 @@ export class Players { constructor(public p1 : string, public p2 : string) {} }
 export class Scores { constructor(public score1 : number, public score2 : number) {} }
 export class Emit { constructor(public givenBall : Position, public id : number, ) {} }
 
-export class PendingClient { constructor(public id : number, public map : number, public difficulty : number) { } }
+export class PendingClient { constructor(public id : number, public map : number, public diff : number) { } }
 
 export class Client {
 	private inGame : boolean = true;
@@ -373,7 +373,7 @@ export class GameService {
 
 		var player = this.clientIDList.get(playerInfo.id);
 		player.getMap = playerInfo.map;
-		player.getDifficulty = playerInfo.difficulty;
+		player.getDifficulty = playerInfo.diff;
 
 		for (let element of this.pendingList.values()) {
 			if (element.getDifficulty === player.getDifficulty) {
