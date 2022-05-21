@@ -12,10 +12,11 @@ import * as path from "path";
 
 // import { Vector3 } from 'three';
 
-import * as THREE from 'three';
+// import * as THREE from 'three';
+import { Vector3 } from 'three';
 // import { cli } from 'webpack';
 
-import { Worker } from "worker_threads";
+// import { Worker } from "worker_threads";
 
 export class Position { constructor(public posx : number, public posy : number, public posz : number) {}; }
 export class Players { constructor(public p1 : string, public p2 : string) {} }
@@ -163,10 +164,10 @@ export class GameService {
 
 
 	constructor() {
-		this.worker = new Worker(`${path.dirname(__filename)}/game.worker.js`);
+		// this.worker = new Worker(`${path.dirname(__filename)}/game.worker.js`);
 
 
-		this.worker.on("message", (message) => this.dispatchMessage(message))
+		// this.worker.on("message", (message) => this.dispatchMessage(message))
 	}
 
 	/////////////////////////////////
@@ -383,7 +384,9 @@ export class GameService {
 
 		console.log(`STARTGAME: ${gameSession.getId}`);
 
-		this.emitMessage("startGame", {id: gameSession.getId});
+
+
+		// this.emitMessage("startGame", {id: gameSession.getId});
 	}
 
 	// Socket is not checked for optimisation purpose
@@ -392,31 +395,41 @@ export class GameService {
 
 		console.log(`gameSesion: ${gameSession} (${gameSession.getId})`);
 
-		this.emitMessage("throwBall", {id: gameSession.getId});
-
+		gameSession.getPlayer2.sendMessage('startGame', []);
+		gameSession.getPlayer1.sendMessage('startGame', []);
 		this.logger.log('[GAME] ball thrown');
 	}
 
-	// // Calculate the position at each reception of 'ballClient'.
-	// // Send in Job
-	// // Socket is not checked for optimisation purpose
-	// updateBallPosition(socket : Socket, newPosition : THREE.Vector3) {
-	// 	// Register and check if the player is registered
-	// 	var gameSession = this.getGame(socket.id);
-	// 	gameSession.getBallPosition = newPosition;
-	// 	// MAYBE REMOVE LATER FOR A JOB
-	// 	gameSession.sendBallPosition();
-	// }
-
-	// Checkand update new player state
-	// Socket is not checked for optimisation purpose
 	updatePlayer(client: Socket, position: number) {
 		var gameSession = this.getGame(client.id);
 
 		var playerIndex = (gameSession.isPlayer1(client)) ? 0 : 1;
 
+		if (playerIndex === 0)
+			gameSession.getPlayer2.sendMessage('setPlayerPos', position);
+		else
+			gameSession.getPlayer1.sendMessage('setPlayerPos', position);
+
 		// this.worker.emit("setPlayerPos", gameSession.getId, playerIndex, position);
-		this.emitMessage("setPlayerPos", {id: gameSession.getId, player: playerIndex, pos: position})
+		// this.emitMessage("setPlayerPos", {player: playerIndex, pos: position})
+	}
+
+	updateBallPosition(client: Socket, position: Vector3) {
+		var gameSession = this.getGame(client.id);
+		var playerIndex = (gameSession.isPlayer1(client)) ? 0 : 1;
+		// Logger.log('updateBallPosition outside');
+		if (playerIndex === 0){														// i'm player 1
+			gameSession.getPlayer2.sendMessage('ballServerPosition', position);
+			// Logger.log('updateBallPosition inside condition');
+		}
+	}
+	updatePlayersScore(client: Socket, scores: []) {
+		var gameSession = this.getGame(client.id);
+		var playerIndex = (gameSession.isPlayer1(client)) ? 0 : 1;
+		// Logger.log('updateBallPosition outside');
+		gameSession.getPlayer1.sendMessage('updateScore', scores);
+		gameSession.getPlayer2.sendMessage('updateScore', scores);
+		// Logger.log('updateBallPosition inside condition');
 	}
 
 	// TODO End game ?
@@ -425,58 +438,9 @@ export class GameService {
 		getGame.getPlayer1.isInGame = false;
 		getGame.getPlayer2.isInGame = false;
 
-		this.emitMessage("endGame", {id: getGame.getId});
+			//TODO END to send
+
+
 	}
 
-	/************************/
-	/**   Worker handler   **/
-	/************************/
-
-	onBallThrown(gameId: number) {
-		let g: GameSession = this.gameList.get(gameId);
-
-		// g.getPlayer1.getSocket.emit("ballThrown");
-		// g.getPlayer2.getSocket.emit("ballThrown");
-
-		g.startSet();
-	}
-
-	onGameEnded(gameId: number) {
-		let g: GameSession = this.gameList.get(gameId);
-
-		g.getPlayer1.getSocket.emit("gameEnded");
-		g.getPlayer2.getSocket.emit("gameEnded");
-	}
-
-	onPlayerSync(gameId: number, playerIdx: number, pos: number) {
-		let g: GameSession = this.gameList.get(gameId);
-
-		this.logger.debug("************* onPlayerSync");
-
-		g.getPlayer1.getSocket.emit("playerSync", playerIdx, pos);
-		g.getPlayer2.getSocket.emit("playerSync", playerIdx, pos);
-	}
-
-	onBallSync(gameId: number, ballPos: [number, number], ballVel: [number, number]) {
-		let g: GameSession = this.gameList.get(gameId);
-
-		// this.logger.debug("************* onBallSync");
-		g.getPlayer1.getSocket.emit("ballSync", ballPos, ballVel);
-		g.getPlayer2.getSocket.emit("ballSync", ballPos, ballVel);
-	}
-
-	dispatchMessage(message: any) {
-		let dta = message.data;
-
-		switch (message.event) {
-			case "ballThrown": this.onBallThrown(dta.id); break;
-			case "onPlayerSync": this.onPlayerSync(dta.id, dta.player, dta.pos); break;
-			case "ballSync": this.onBallSync(dta.id, dta.pos, dta.vel); break;
-			case "gameEnded": this.onGameEnded(dta.id); break;
-		}
-	}
-
-	emitMessage(event: string, data: any) {
-		this.worker.postMessage({event: event, data: data});
-	}
 }
