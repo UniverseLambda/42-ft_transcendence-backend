@@ -471,15 +471,23 @@ export class AppService {
   }
 
   socketConnected(id: number) {
+	 this.logger.debug(`[APPSERVICE] Socket ${id} connected.`);
     this.getClientState(id).socketCount += 1;
   }
 
   socketDisconnected(id: number) {
+	 this.logger.debug(`[APPSERVICE] Socket ${id} disconnected.`);
     let client: ClientState = this.getClientState(id);
+
+	 if (client === undefined) {
+		 this.logger.error(`socketDisconnected: no client for id ${id}`);
+		 return;
+	 }
 
     client.socketCount -= 1;
 
     if (client.socketCount === 0) {
+		 this.logger.warn(`socketDisconnected: cleaning up data of user ${client.getId()}`);
       // TODO: socketDisconnected: flush data to database
       this.userMap.delete(id);
     }

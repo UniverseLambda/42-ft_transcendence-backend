@@ -264,6 +264,7 @@ export class GameService {
 		this.logger.log(`[MATCHMAKING] New client -${socket.id}- connected.`);
 		try {
 			var cookie : string = parse(socket.handshake.headers.cookie)[appService.getSessionCookieName()];
+			this.logger.warn(`COOKIE IS : ${cookie}`);
 			var state = await appService.getSessionDataToken(cookie);
 		}
 		catch {
@@ -403,11 +404,12 @@ export class GameService {
 			throw ExceptionUserNotRegister("unregisterPending");
 		}
 		var clientSession = this.clientList.get(socket.id);
+		appService.socketDisconnected(clientSession.getId);
 		if (socket.connected) {
+			appService.socketDisconnected(clientSession.getId);
 			clientSession.sendMessage("disconnectInMatchmaking", []);
 			clientSession.disconnect();
 		}
-		appService.socketDisconnected(clientSession.getId);
 		this.logger.log(`[MATCHMAKING] Client ${this.findClientSocket(socket.id).getId} unregistered.`);
 		if (!clientSession.isAuthentified)
 			this.clientIDList.delete(clientSession.getId);
@@ -432,27 +434,29 @@ export class GameService {
 	async registerClient(appService : AppService, socket : Socket) {
 		this.logger.log(`[GAME] New client -${socket.id}- connected.`);
 		try {
+			this.logger.warn(`registerClient: ${socket.handshake.headers.cookie}`);
 			var cookie : string = parse(socket.handshake.headers.cookie)[appService.getSessionCookieName()];
+			this.logger.warn(`COOKIE IS : ${cookie}`);
 			var state = await appService.getSessionDataToken(cookie);
 			/////////////////////////////////
 			// REMOVE IT WHEN OPERATIONNAL //
 			// var client = new Client(socket, true, state, '', 1); // 1 is default
 			/////////////////////////////////
 		}
-		catch {
-			this.logger.error(`[GAME] Cannot authentify socket ${socket.id} !`)
+		catch (reason) {
+			this.logger.error(`[GAME] Cannot authentify socket ${socket.id} ! (reason: ${reason})`);
 			throw ExceptionUserNotRegister(`registerClient`);
 		}
 			///////////////////////////////////////
 			//// UNCOMMENT IT WHEN OPERATIONAL ////
 			///////////////////////////////////////
 		if (!this.clientIDList.has(state.getId())) {
-			this.logger.log(`[GAME] Client ${state.getId()} is not registered.`);
+			this.logger.log(`[GAME] Client ${socket.id} is not registered.`);
 			throw ExceptionGameSession(`registerClient`);
 		}
 		var client = this.clientIDList.get(state.getId());
 		if (!this.gameList.has(client.getGameId)) {
-			this.logger.log(`[GAME] Client ${state.getId()} is not registered to a game.`);
+			this.logger.log(`[GAME] Client ${socket.id} is not registered to a game.`);
 			throw ExceptionGameSession(`registerClient`);
 		}
 
@@ -499,10 +503,10 @@ export class GameService {
 			this.gameList.get(clientData.getGameId).removeSpectate(client.id);
 		}
 		if (client.connected) {
+			appService.socketDisconnected(clientData.getId);
 			clientData.sendMessage('disconnectInGame', []);
 			clientData.disconnect();
 		}
-		appService.socketDisconnected(clientData.getId);
 		// If he was in game, send message and disconnect him
 		this.logger.log(`[GAME] Client -${this.clientList.get(client.id).getId}- unregistered.`);
 		this.clientList.delete(client.id);
@@ -599,26 +603,38 @@ export class GameService {
 	// TODO End game ?
 	endGame(client : Socket,  appService : AppService) {
 		var getGame = this.getGame(client.id);
+		if (getGame === undefined)
+			return ;
 		var players = {p1 : getGame.getPlayer1.getId, p2 : getGame.getPlayer2.getId};
 
 		if (getGame.getPlayer1.getSocket.disconnected || getGame.getScores.score1 < getGame.getScores.score2) {
 			// appService.gameEnded(players , getGame.getPlayer2.getId, getGame.getScores);
+			getGame.getPlayer2.sendMessage('disconnectInGame', true);
+			if (!getGame.getPlayer1.getSocket.disconnected)
+				getGame.getPlayer1.sendMessage('disconnectInGame', false);
 		}
 		else if (getGame.getPlayer2.getSocket.disconnected || getGame.getScores.score1 > getGame.getScores.score2) {
 			// appService.gameEnded(players , getGame.getPlayer1.getId, getGame.getScores);
+			getGame.getPlayer1.sendMessage('disconnectInGame', true);
+			if (!getGame.getPlayer2.getSocket.disconnected)
+				getGame.getPlayer2.sendMessage('disconnectInGame', false);
 		}
 
-		getGame.getPlayer1.sendMessage('disconnectInGame', []);
-		getGame.getPlayer2.sendMessage('disconnectInGame', []);
-		appService.socketDisconnected(getGame.getPlayer1.getId);
-		appService.socketDisconnected(getGame.getPlayer2.getId);
-		getGame.getPlayer1.disconnect();
-		getGame.getPlayer2.disconnect();
-		getGame.getPlayer1.isInGame = false;
+		this.logger.log(`[GAME] End of game reached : ${getGame.getPlayer1.getId}, ${getGame.getPlayer2.getId}`);
+		if (getGame.getPlayer1.getSocket.connected) {
+			appService.socketDisconnected(getGame.getPlayer1.getId);
+			getGame.getPlayer1.disconnect();
+		}
+		if (getGame.getPlayer2.getSocket.connected) {
+			appService.socketDisconnected(getGame.getPlayer2.getId);
+			getGame.getPlayer2.disconnect();
+		}
+		getGame.getPlayer2.isInGame = false;
 		getGame.getPlayer2.isInGame = false;
 		getGame.cleanSpectate();
 		appService.gameQuitted(getGame.getPlayer1.getId);
 		appService.gameQuitted(getGame.getPlayer2.getId);
+		this.logger.log('[GAME] Game deleted.');
 		this.gameList.delete(getGame.getId);
 	}
 }
