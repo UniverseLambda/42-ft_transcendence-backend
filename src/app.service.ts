@@ -102,7 +102,7 @@ export class AppService {
     this.secret = generateKeySync("hmac", { length: 512 });
 
     if (!util.isLocal()) {
-      this.sqlConn = new Client({host: process.env.IP_DATABASE, port: Number.parseInt(process.env.PORT_DATABASE), user: process.env.POSTGRES_USER, password: process.env.POSTGRES_PASSWORD, });
+      this.sqlConn = new Client({host: process.env.IP_DATABASE, port: Number.parseInt(process.env.PORT_DATABASE), user: "mamoule", database: "db_transcendence"});
       this.sqlConn.connect();
     }
   }
