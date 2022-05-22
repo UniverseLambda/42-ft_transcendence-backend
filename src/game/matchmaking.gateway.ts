@@ -60,7 +60,7 @@ export class MatchmakingGateway implements OnGatewayConnection, OnGatewayDisconn
 
 	@SubscribeMessage('cancel')
 	handleCancelMatch(@ConnectedSocket() client: Socket, @MessageBody() payload : PendingClient) {
-		try { client.disconnect(true); }
+		try { this.gameService.cancelSearchGame(client); }
 		catch (e) { this.logger.error("handleCancelMatch: " + e.name + " " + e.message); }
 	}
 }
