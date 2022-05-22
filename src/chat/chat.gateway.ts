@@ -4,7 +4,7 @@ import { Socket } from "socket.io";
 import { AppService, ClientState } from "src/app.service";
 import { ChatService } from "./chat.service";
 
-@WebSocketGateway({ cors: { origin: "http://localhost:4200", credentials: true }, namespace: "chat", cookie: true })
+@WebSocketGateway({ cors: { origin: "http://localhost:4200", credentials: true }, namespace: "back/chat", cookie: true })
 export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
   private readonly logger: Logger = new Logger(ChatGateway.name);
 
