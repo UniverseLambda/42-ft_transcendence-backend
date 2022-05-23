@@ -195,6 +195,7 @@ export class AppService {
         cookie = new AuthState(AuthStatus.Accepted, response.data.id);
       }
 
+      this.userMap.set(data.getId(), data);
     } catch (reason) {
         this.logger.error("Error while communicating with 42's intranet: " + reason);
 
@@ -349,7 +350,7 @@ export class AppService {
     let valid: boolean = await this.check2FA(sess, token);
 
     if (valid) {
-      this.execSql("UPDATE users SET totpsecret = '$1' WHERE uid = '$2';", sess.profile.totpSecret, sess.getId());
+      this.execSql("UPDATE users SET totpsecret = $1 WHERE uid = $2;", sess.profile.totpSecret, sess.getId());
       sess.totpInPreparation = false;
       return true;
     }
@@ -383,7 +384,7 @@ export class AppService {
     sess.profile.totpSecret = undefined;
     sess.totpInPreparation = false;
 
-    this.execSql("UPDATE users SET totpsecret = 'NULL' WHERE uid = '$1';", sess.getId());
+    this.execSql("UPDATE users SET totpsecret = 'NULL' WHERE uid = $1;", sess.getId());
   }
 
   addFriend(sess: ClientState, targetId: number): any {
@@ -400,7 +401,7 @@ export class AppService {
     let id0 = Math.min(sess.getId(), targetId);
     let id1 = Math.max(sess.getId(), targetId);
 
-    this.execSql("INSERT INTO friendlist (id_user1, id_user2) VALUES ('$1', '$2');", id0, id1);
+    this.execSql("INSERT INTO friendlist (id_user1, id_user2) VALUES ($1, $2);", id0, id1);
 
     return { success: "YAY" };
   }
@@ -420,7 +421,7 @@ export class AppService {
 
     sess.removeFriend(targetId);
 
-    this.execSql("DELETE FROM friendlist WHERE id_user1 = '$1' AND id_user2 = '$2';", id0, id1);
+    this.execSql("DELETE FROM friendlist WHERE id_user1 = $1 AND id_user2 = $2;", id0, id1);
 
     return { success: "YAY" };
   }
@@ -451,24 +452,24 @@ export class AppService {
   async roomRemoveUser(roomId: number, userId: number): Promise<boolean> {
     await this.setRoomAdmin(roomId, userId, false);
 
-    const req = "DELETE FROM participants WHERE room_id = '$1' AND user_id = '$2';";
+    const req = "DELETE FROM participants WHERE room_id = $1 AND user_id = $2;";
 
     return this.execSql(req, roomId, userId);
   }
 
   async removeEmptyRoom(roomId: number): Promise<boolean> {
-    const reqBan = "DELETE FROM blacklist WHERE id_user1 = '$1';";
+    const reqBan = "DELETE FROM blacklist WHERE id_user1 = $1;";
 
     if (!await this.execSql(reqBan, roomId))
       return false;
 
-    const req = "DELETE FROM rooms WHERE identifiant = '$1';";
+    const req = "DELETE FROM rooms WHERE identifiant = $1;";
 
     return this.execSql(req, roomId);
   }
 
   async validateRoomPassword(roomId: number, password?: string): Promise<boolean> {
-    const req = "SELECT * FROM rooms WHERE identifiant = $1 AND room_password = (CRYPT('$2', room_password));";
+    const req = "SELECT * FROM rooms WHERE identifiant = $1 AND room_password = (CRYPT($2, room_password));";
 
     try {
       return (await this.sqlConn.query(req, [roomId, password])).rowCount !== 0;
@@ -479,13 +480,13 @@ export class AppService {
   }
 
   async addUserToRoom(roomId: number, userId: number): Promise<boolean> {
-    const req = "INSERT INTO participants (room_id, user_id) VALUES('$1', '$2);";
+    const req = "INSERT INTO participants (room_id, user_id) VALUES($1, '$2);";
 
     return this.execSql(req, roomId, userId);
   }
 
   async userBlocked(blocker: number, blocking: number): Promise<boolean> {
-    const req = "INSERT INTO blacklist (id_user1, id_user2) VALUES('$1', '$2');";
+    const req = "INSERT INTO blacklist (id_user1, id_user2) VALUES($1, $2);";
 
     return this.execSql(req, blocker, blocking);
   }
@@ -506,14 +507,14 @@ export class AppService {
 
   async setRoomAdmin(roomId: number, userId: number, action: boolean): Promise<boolean> {
     const req = (action)
-      ? "INSERT INTO room_admins (room_id, user_id) VALUES ('$1', '$2');"
-      : "DELETE FROM room_admins WHERE room_id = '$1' AND user_id = '$2';";
+      ? "INSERT INTO room_admins (room_id, user_id) VALUES ($1, $2);"
+      : "DELETE FROM room_admins WHERE room_id = $1 AND user_id = $2;";
 
     return this.execSql(req, roomId, userId);
   }
 
   async getHistoryList(userId: number): Promise<{otherId: number, versus: string, score: string, status: string}[]> {
-    const req = "SELECT * FROM matches_history WHERE id_user1 = '$1' OR id_user2 = '$1';";
+    const req = "SELECT * FROM matches_history WHERE id_user1 = $1 OR id_user2 = $1;";
 
     try {
       let sqlRes = await this.sqlConn.query(req, [userId]);
@@ -615,7 +616,7 @@ export class AppService {
   }
 
   async getRoomAdmins(id: number): Promise<number[]> {
-    const req = "SELECT user_id FROM room_admins WHERE room_id = '$1';";
+    const req = "SELECT user_id FROM room_admins WHERE room_id = $1;";
 
     try {
       let sqlResult = await this.sqlConn.query(req, [id]);
@@ -628,7 +629,7 @@ export class AppService {
   }
 
   async getRoomBanlist(id: number): Promise<number[]> {
-    const req = "SELECT id_user2 FROM blacklist WHERE id_user1 = '$1';";
+    const req = "SELECT id_user2 FROM blacklist WHERE id_user1 = $1;";
 
     try {
       let sqlResult = await this.sqlConn.query(req, [id]);
@@ -641,7 +642,7 @@ export class AppService {
   }
 
   async getRoomMembers(id: number): Promise<number[]> {
-    const req = "SELECT user_id FROM participants WHERE room_id = '$1';";
+    const req = "SELECT user_id FROM participants WHERE room_id = $1;";
 
     try {
       let sqlResult = await this.sqlConn.query(req, [id]);
@@ -655,8 +656,8 @@ export class AppService {
 
   async addRoom(id: number, name: string, isPrivate: boolean, password: string): Promise<boolean> {
     const req = (password === undefined)
-      ? "INSERT INTO rooms (room_name, description, room_password, identifiant) VALUES ('$1', '$2', CRYPT('$3', GEN_SALT('md5')), '$4');"
-      : "INSERT INTO rooms (room_name, description, room_password, identifiant) VALUES ('$1', '$2', '$3', '$4');";
+      ? "INSERT INTO rooms (room_name, description, room_password, identifiant) VALUES ($1, $2, CRYPT($3, GEN_SALT('md5')), $4);"
+      : "INSERT INTO rooms (room_name, description, room_password, identifiant) VALUES ($1, $2, $3, $4);";
 
     if (password === undefined) password = null;
 
@@ -664,7 +665,7 @@ export class AppService {
   }
 
   async setNewLogin(client: ClientState, newLogin: string): Promise<boolean> {
-    if (await this.execSql("UPDATE users SET login = '$1' WHERE uid = '$2';", newLogin, client.getId())) {
+    if (await this.execSql("UPDATE users SET login = $1 WHERE uid = $2;", newLogin, client.getId())) {
       client.profile.login = newLogin;
       return true;
     }
@@ -672,7 +673,7 @@ export class AppService {
   }
 
   async getUserInfo(id: number): Promise<UserProfile> {
-    const req = "SELECT * FROM users WHERE uid = '$1'";
+    const req = "SELECT * FROM users WHERE uid = $1";
 
     try {
       let result = await this.sqlConn.query(req, [id]);
@@ -691,7 +692,7 @@ export class AppService {
   }
 
   async retrieveFriendList(id: number): Promise<number[]> {
-    const req = "SELECT * FROM friendlist WHERE id_user1 = '$1' OR id_user2 = '$1'";
+    const req = "SELECT * FROM friendlist WHERE id_user1 = $1 OR id_user2 = $1";
 
     try {
       let sqlResult = await this.sqlConn.query(req, [id]);
@@ -710,25 +711,25 @@ export class AppService {
   }
 
   async registerUser(id: number, login: string, displayName: string, defaultAvatarUrl: string): Promise<boolean> {
-    const req = "INSERT INTO users (login, nickname, profile_pic, uid) VALUES ('$1', '$2', '$3', '$4');";
+    const req = "INSERT INTO users (login, nickname, profile_pic, uid) VALUES ($1, $2, $3, $4);";
 
     return this.execSql(req, login, displayName, defaultAvatarUrl, id);
   }
 
   async setLogin(id: number, newLogin: string): Promise<boolean> {
-    const req = "UPDATE users SET login = '$1' WHERE uid = '$2';";
+    const req = "UPDATE users SET login = $1 WHERE uid = $2;";
 
     return this.execSql(req, newLogin, id);
   }
 
   async setPassword(roomId: number, newPassword: string): Promise<boolean> {
-    const req = "UPDATE rooms SET room_password = CRYPT('$1', GEN_SALT('md5')) WHERE identifiant = '$2';";
+    const req = "UPDATE rooms SET room_password = CRYPT($1, GEN_SALT('md5')) WHERE identifiant = $2;";
 
     return this.execSql(req, newPassword, roomId);
   }
 
   async updateStats(userId: number, hasWon: boolean) {
-    const reqProfiles = "UPDATE users SET wins = '$2', losses = '$3', level = '$4' WHERE uid = '$1';";
+    const reqProfiles = "UPDATE users SET wins = $2, losses = $3, level = $4 WHERE uid = $1;";
 
     let info = await this.getUserInfo(userId);
 
@@ -764,7 +765,7 @@ export class AppService {
       return false;
     }
 
-    const req = "INSERT INTO matches_history (id_user1, score_user1, id_user2, score_user2, winner) VALUES ('$1', '$2', '$3', '$4', '$5');";
+    const req = "INSERT INTO matches_history (id_user1, score_user1, id_user2, score_user2, winner) VALUES ($1, $2, $3, $4, $5);";
 
     return await this.execSql(req, ids.p1, scores.score1, ids.p2, scores.score2, winner);
   }
