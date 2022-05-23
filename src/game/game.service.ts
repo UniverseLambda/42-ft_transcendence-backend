@@ -84,16 +84,23 @@ export class GameSession {
 	private readyStatus : [p1 : boolean, p2 : boolean] = [false, false];
 	private id : number = 0;
 	private spectateList : Map<string, Client> = new Map();
+	private setStarted : boolean;
 
 	constructor(private player1 : Client, private player2 : Client) {
 		this.id = player1.getId + player2.getId;
 	}
 
-
 	public get getDifficulty() : number { return this.player1.getDifficulty; }
 
 	public get getBallPosition() : THREE.Vector3 { return this.ballPosition; }
 	public set getBallPosition(position : THREE.Vector3) { this.ballPosition = position; }
+
+	public player1Scored() { ++this.scores.score1; }
+	public player2Scored() { ++this.scores.score2; }
+
+	public setStart() {this.setStarted = true;}
+	public setEnd() {this.setStarted = false;}
+	public get setStatus() : boolean { return this.setStarted; }
 
 	public get getScores() : Scores { return this.scores; }
 	public set getScores(newScores : Scores) { this.scores = newScores; }
@@ -132,6 +139,15 @@ export class GameSession {
 	public resetPlayers() {
 		this.resetPlayersReferences();
 		this.resetPlayersParameters();
+	}
+
+	public resetGame() {
+		this.scores = {score1:0, score2:0};
+		this.ballPosition = new Vector3(0,0,0);
+		this.readyStatus = [false,false];
+		this.cleanSpectate();
+		this.resetPlayers();
+		this.id = 0;
 	}
 
 	public launchGame() {
@@ -226,11 +242,11 @@ export class GameSession {
 		}
 	}
 
-	public sendPlayerScore(socketId : Socket, scores : Scores) {
-		this.player1.sendMessage('updateScore', scores);
-		this.player2.sendMessage('updateScore', scores);
+	public sendPlayerScore(socketId : Socket) {
+		this.player1.sendMessage('updateScore', this.scores);
+		this.player2.sendMessage('updateScore', this.scores);
 		this.spectateList.forEach(element => {
-			element.sendMessage('updateScore', scores);
+			element.sendMessage('updateScore', this.scores);
 		});
 	}
 }
@@ -651,11 +667,16 @@ export class GameService {
 	}
 
 	// Socket is not checked for optimisation purpose
-	throwBall(client: Socket) {
-		var gameSession = this.getGame(client.id);
-		console.log(`gameSesion: ${gameSession} (${gameSession.getId})`);
-		gameSession.getPlayer2.sendMessage('startGame', []);
+	throwBall(socket: Socket) {
+		var client = this.clientCheck(socket,`throwBall : client not properly registered.`);
+		if (!client.isInGame || !this.gameList.has(client.getGameId))
+			throw ExceptionGameSession('throwBall : player not in game, or game not registered.');
+		var gameSession = this.getGame(socket.id);
+		if (!gameSession.isPlayer1(socket) || client.isSpectate || gameSession.setStatus)
+			return ;
 		gameSession.getPlayer1.sendMessage('startGame', []);
+		gameSession.getPlayer2.sendMessage('startGame', []);
+		gameSession.setStart();
 		this.logger.log('[GAME] ball thrown');
 	}
 
@@ -669,10 +690,22 @@ export class GameService {
 		gameSession.sendBallPosition(position);
 	}
 
-	updatePlayersScore(client: Socket, scores : Scores) {
+	updatePlayersScore(client: Socket, player:string, appService : AppService) {
 		var gameSession = this.getGame(client.id);
-		gameSession.getScores = scores;
-		gameSession.sendPlayerScore(client, scores);
+		gameSession.setEnd();
+		if (player === 'player1') {
+			this.logger.log('[GAME] Player 1 scored');
+			gameSession.player1Scored();
+		}
+		else if (player === 'player2') {
+			this.logger.log('[GAME] Player 2 scored');
+			gameSession.player2Scored();
+		}
+		gameSession.sendPlayerScore(client);
+		var savedScore = gameSession.getScores;
+		this.logger.log(`Score : `, savedScore);
+		if (savedScore.score1 >= 11 || savedScore.score2 >= 11)
+			this.endGame(client, appService);
 	}
 
 	endGame(client : Socket,  appService : AppService) {
@@ -703,8 +736,7 @@ export class GameService {
 		}
 		appService.gameQuitted(getGame.getPlayer1.getId);
 		appService.gameQuitted(getGame.getPlayer2.getId);
-		getGame.resetPlayers();
-		getGame.cleanSpectate();
+		getGame.resetGame();
 		this.logger.log('[GAME] Game deleted.');
 		this.gameList.delete(getGame.getId);
 	}
