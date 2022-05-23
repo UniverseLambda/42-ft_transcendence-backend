@@ -1,6 +1,5 @@
 import { Injectable, Logger, NestMiddleware } from '@nestjs/common';
 import { Request, Response } from 'express';
-import { read } from 'fs';
 import { AppService } from './app.service';
 
 @Injectable()
@@ -15,6 +14,9 @@ export class SecurityMiddleware implements NestMiddleware {
       res.status(403).end();
       return;
     }
+    
+    await this.appService.reviveUser((await this.appService.getTokenData(req.cookies[this.appService.getSessionCookieName()])).id);
+    
     next();
   }
 }

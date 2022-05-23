@@ -1,6 +1,6 @@
 import { Injectable, Logger } from "@nestjs/common";
 import axios from "axios";
-import e, { CookieOptions, Request } from "express";
+import { CookieOptions, Request } from "express";
 import { generateKeySync, KeyObject } from "crypto";
 import * as jose from "jose";
 import * as fs from "fs";
@@ -10,7 +10,6 @@ import * as OAuth from "otpauth";
 import { Client } from "pg";
 
 import * as util from "./util";
-import { ChatRoom } from "./chat/chat.service";
 
 const JWT_ALG: string = "HS512";
 const JWT_ISSUER: string = "ft_transcendance_BrindiSquad";
@@ -42,7 +41,7 @@ export class UserProfile {
     public login: string,
     public readonly displayName: string,
     public readonly defaultAvatarUrl: string,
-    public xp: number = 1,
+    public xp: number = 0,
     public rank: string = "N00b",
     public win: number = 0,
     public loose: number = 0,
@@ -135,6 +134,7 @@ export class AppService {
   async getSessionDataToken(token: string): Promise<ClientState> {
     let tokenData: AuthState = await this.getTokenData(token);
 
+    await this.reviveUser(tokenData.id);
     return this.userMap.get(tokenData.id);
   }
 
@@ -172,6 +172,11 @@ export class AppService {
       let response = await axios.get(`https://api.intra.42.fr/v2/me?access_token=${token_result.data.access_token}`);
       this.logger.verbose(`retrieveUserData: got status ${response.status} from api.intra.42.fr`);
 
+      // If they are already connected, we don't do anything
+      if (this.getClientState(response.data.id) !== undefined) {
+        return await this.newToken(new AuthState(AuthStatus.Accepted, response.data.id));
+      }
+
       let sqlResult: UserProfile = await this.getUserInfo(response.data.id);
 
       let userProfile: UserProfile;
@@ -180,6 +185,7 @@ export class AppService {
         userProfile = sqlResult;
       } else {
         userProfile = new UserProfile(response.data.login, response.data.displayname, response.data.image_url);
+        await this.registerUser(response.data.id, userProfile);
       }
 
       let data: ClientState = new ClientState(
@@ -546,8 +552,8 @@ export class AppService {
     if (force || this.getClientState(id) === undefined) {
       let res = await this.getUserInfo(id);
 
-      if (res === undefined) {
-        this.logger.error(`reviveUser: could not revive user ${id}`);
+      if (!res) {
+        this.logger.error(`reviveUser: could not revive user ${id} (res === ${res})`);
         return false;
       }
 
@@ -661,7 +667,7 @@ export class AppService {
 
     if (password === undefined) password = null;
 
-    return this.execSql(req, name, (isPrivate) ? "private" : "public", null, id);
+    return this.execSql(req, name, (isPrivate) ? "private" : "public", password, id);
   }
 
   async setNewLogin(client: ClientState, newLogin: string): Promise<boolean> {
@@ -710,10 +716,10 @@ export class AppService {
     return [];
   }
 
-  async registerUser(id: number, login: string, displayName: string, defaultAvatarUrl: string): Promise<boolean> {
+  async registerUser(id: number, prf: UserProfile): Promise<boolean> {
     const req = "INSERT INTO users (login, nickname, profile_pic, uid) VALUES ($1, $2, $3, $4);";
 
-    return this.execSql(req, login, displayName, defaultAvatarUrl, id);
+    return this.execSql(req, prf.login, prf.displayName, prf.defaultAvatarUrl, id);
   }
 
   async setLogin(id: number, newLogin: string): Promise<boolean> {
@@ -754,7 +760,7 @@ export class AppService {
 
       return true;
     } catch (reason) {
-      this.logger.debug(`registerUser: error while database querying: ${reason}`);
+      this.logger.debug(`execSql: error while database querying: ${reason}`);
     }
     return false;
   }

@@ -51,9 +51,10 @@ export class LoginController {
 		try {
 			let token: string = request.cookies[this.appService.getSessionCookieName()];
 
+			
 			let authStatus = await this.appService.isAuth(token);
 			let data: any = { authStatus: AuthStatus[authStatus] };
-
+			
 			if (authStatus === AuthStatus.Accepted) {
 				let info: ClientState = await this.appService.getSessionDataToken(token);
 
@@ -63,6 +64,10 @@ export class LoginController {
 				data.imageUrl = this.appService.getAvatarUrl(info.getId());
 				data.userStatus = info.userStatus;
 				data.requires2FA = (info.profile.totpSecret !== undefined || info.profile.totpSecret !== null);
+				data.level = this.appService.calcLevel(info.profile.xp);
+				data.win = info.profile.win;
+				data.loose = info.profile.loose;
+				data.ratio = (info.profile.loose === 0) ? (info.profile.win) : (info.profile.win / info.profile.loose);
 			}
 
 			return data;

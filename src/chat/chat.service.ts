@@ -2,7 +2,6 @@ import { Injectable, Logger } from '@nestjs/common';
 import { AppService, ClientState, UserStatus } from 'src/app.service';
 import { Socket } from 'socket.io';
 import { parse } from "cookie";
-import e from 'express';
 
 const GENERAL_ROOM_NAME: string = "World_General";
 const GENERAL_ROOM_ID: number = -1;
@@ -186,7 +185,6 @@ export class ChatRoom implements MessageReceipient {
 		this.members.add(user.getId());
 
 		if (isAdmin) this.adminList.add(user.getId());
-
 		this.connected.set(user.getId(), new ChatRoomClientData(user));
 
 		user.roomJoined(this, true);
@@ -245,17 +243,6 @@ export class ChatRoom implements MessageReceipient {
 	isInRoom(client: ChatClient): boolean {
 		return this.members.has(client.getId());
 	}
-
-	// setPassword(client: ChatClient, password?: string): ChatResult {
-	// 	let user: ChatRoomClientData = this.connected.get(client.getId());
-
-	// 	if (user === undefined) return ChatResult.NotInRoom;
-	// 	if (!this.isAdmin(client)) return ChatResult.NotAdmin;
-
-	// 	this.password = password;
-
-	// 	return ChatResult.Ok;
-	// }
 
 	sendMessage(user: ChatClient, message: string): ChatResult {
 		let sender: ChatRoomClientData = this.connected.get(user.getId());
@@ -351,7 +338,6 @@ export class ChatService {
 	private clients: Map<string, ChatClient> = new Map();
 	private clientsSID: Map<number, string> = new Map();
 	private rooms: Map<number, ChatRoom> = new Map();
-	private roomId: number = 2;
 
 	constructor(private appService: AppService) {
 		this.rooms.set(GENERAL_ROOM_ID, new ChatRoom(GENERAL_ROOM_ID, GENERAL_ROOM_NAME, null, false));
@@ -386,11 +372,21 @@ export class ChatService {
 			return false;
 		}
 
-		this.clientsSID.set(client.getId(), socket.id);
 		let chatClient = new ChatClient(socket, client);
+		
+		this.clientsSID.set(client.getId(), socket.id);
 		this.clients.set(socket.id, chatClient);
 
-		this.rooms.get(-1).addUserNoDispatch(chatClient);
+		let generalResult = this.rooms.get(GENERAL_ROOM_ID).addUserNoDispatch(chatClient);
+
+		if (generalResult !== ChatResult.Ok) {
+			if (generalResult !== ChatResult.AlreadyInRoom) {
+				this.logger.error(`registerConnection: could not add user ${chatClient.getId()} to general: ${ChatResult[generalResult]}`);
+				return false;
+			}
+
+			this.rooms.get(GENERAL_ROOM_ID).userConnected(chatClient);
+		}
 
 		this.logger.debug(`registerConnection: user ${client.getId()} (socket: ${socket.id}) joined the chat!`);
 
@@ -510,8 +506,8 @@ export class ChatService {
 		let timedout = false;
 
 		do {
-			roomId = -(this.roomId);
-			this.roomId = (this.roomId + 1) % Number.MAX_VALUE;
+			roomId = -Date.now();
+			// this.roomId = (this.roomId + 1) % Number.MAX_VALUE;
 		} while (this.rooms.has(roomId) && !(timedout = (Date.now() - startTime) >= (2 /* s */ * 1000 /* ms */)));
 
 		if (timedout) {

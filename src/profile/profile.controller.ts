@@ -221,6 +221,7 @@ export class ProfileController {
 			level: this.appService.calcLevel(user.xp),
 			win: user.win,
 			loose: user.loose,
+			ratio: (user.loose === 0) ? (user.win) : (user.win / user.loose),
 		}
 
 		if (sess.getId() && client.getId() === sess.getId()) {
