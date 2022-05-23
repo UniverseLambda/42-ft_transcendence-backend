@@ -105,9 +105,9 @@ export class AppService {
       this.sqlConn = new Client({
         host: process.env.IP_DATABASE,
         port: Number.parseInt(process.env.PORT_DATABASE),
-        user: "mamoule",
+        user: process.env.POSTGRES_USER,
         password: "test_password",
-        database: "db_transcendence" });
+        database: process.env.POSTGRES_DB });
       this.sqlConn.connect();
     }
   }
