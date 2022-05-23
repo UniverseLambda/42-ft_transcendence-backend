@@ -5,7 +5,7 @@ import { GameService } from "./game.service";
 import { AppService } from "src/app.service";
 import { Vector3 } from 'three';
 
-@WebSocketGateway({ cors: { origin: "http://localhost:4200" }, namespace: "game" })
+@WebSocketGateway({ cors: { origin: "http://localhost:4200" }, namespace: "back/game" })
 export class GameGateway implements OnGatewayConnection, OnGatewayDisconnect {
   // constructor(private appService : AppService, private gameService: GameService, private engineService: EngineService) {}
   constructor(private appService : AppService, private gameService: GameService) {}
