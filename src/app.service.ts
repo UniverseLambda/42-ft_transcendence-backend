@@ -480,7 +480,7 @@ export class AppService {
   }
 
   async addUserToRoom(roomId: number, userId: number): Promise<boolean> {
-    const req = "INSERT INTO participants (room_id, user_id) VALUES($1, '$2);";
+    const req = "INSERT INTO participants (room_id, user_id) VALUES($1, $2);";
 
     return this.execSql(req, roomId, userId);
   }
