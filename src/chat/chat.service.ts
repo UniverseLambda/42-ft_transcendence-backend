@@ -127,6 +127,8 @@ enum ChatResult {
 }
 
 export class ChatRoom implements MessageReceipient {
+	private readonly logger: Logger = new Logger(ChatRoom.name);
+
 	private connected: Map<number, ChatRoomClientData> = new Map();
 
 	private members: Set<number> = new Set();
@@ -144,6 +146,7 @@ export class ChatRoom implements MessageReceipient {
 		this.members.clear();
 
 		for (let m of members) {
+			this.logger.verbose(`INIT:ROOM:${this.getId()} adding member ${m}`);
 			this.members.add(m);
 		}
 	}
@@ -152,6 +155,7 @@ export class ChatRoom implements MessageReceipient {
 		this.adminList.clear();
 
 		for (let a of admins) {
+			this.logger.verbose(`INIT:ROOM:${this.getId()} adding admin ${a}`);
 			this.adminList.add(a);
 		}
 	}
@@ -160,6 +164,7 @@ export class ChatRoom implements MessageReceipient {
 		this.banList.clear();
 
 		for (let b of banned) {
+			this.logger.verbose(`INIT:ROOM:${this.getId()} adding banned ${b}`);
 			this.banList.add(b);
 		}
 	}
@@ -346,7 +351,16 @@ export class ChatService {
 			let res = await this.appService.retrieveRoomList();
 
 			for (let r of res) {
+				this.logger.verbose(`LOADED ROOM ${r.id} (${r.name})`);
 				this.rooms.set(r.id, new ChatRoom(r.id, r.name, null, r.isPrivate));
+
+				let members = await this.appService.getRoomMembers(r.id);
+				let admins = await this.appService.getRoomAdmins(r.id);
+				let bans = await this.appService.getRoomBanlist(r.id);
+
+				this.rooms.get(r.id).setMembers(members);
+				this.rooms.get(r.id).setAdmins(admins);
+				this.rooms.get(r.id).setBans(bans);
 			}
 		});
 	}
@@ -373,7 +387,7 @@ export class ChatService {
 		}
 
 		let chatClient = new ChatClient(socket, client);
-		
+
 		this.clientsSID.set(client.getId(), socket.id);
 		this.clients.set(socket.id, chatClient);
 
@@ -506,8 +520,7 @@ export class ChatService {
 		let timedout = false;
 
 		do {
-			roomId = -Date.now();
-			// this.roomId = (this.roomId + 1) % Number.MAX_VALUE;
+			roomId = -(Date.now() - 1653264000000);
 		} while (this.rooms.has(roomId) && !(timedout = (Date.now() - startTime) >= (2 /* s */ * 1000 /* ms */)));
 
 		if (timedout) {
@@ -523,11 +536,14 @@ export class ChatService {
 			for (let c of this.clients.values()) {
 				if (c.getId() === client.getId()) continue;
 
-				c.socket.emit("newRoom", {roomId: roomId, name: name});
+				c.newRoom(room);
+				// c.socket.emit("newRoom", {roomId: roomId, name: name});
 			}
 		}
 
 		this.appService.addRoom(room.getId(), room.name, room.isPrivate(), password);
+		this.appService.addUserToRoom(room.getId(), client.getId());
+		this.appService.setRoomAdmin(room.getId(), client.getId(), true);
 
 		return true;
 	}
@@ -901,10 +917,16 @@ export class ChatService {
 	sendInitialInformation(socket: Socket, chatClient: ChatClient) {
 		chatClient.roomJoined(this.rooms.get(GENERAL_ROOM_ID));
 
+		this.logger.debug(`AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA`);
+
 		for (let r of this.rooms.values()) {
 			if (r.getId() === GENERAL_ROOM_ID) continue;
 
+			this.logger.debug(`AAAAAAAAAAAAAAAAAA room: ${r.getId()}`);
+
 			if (r.isInRoom(chatClient)) {
+				this.logger.debug(`AAAAAAAAAAAAAAAAAA room: IS IN THE ROOM`);
+				r.userConnected(chatClient);
 				chatClient.roomJoined(r);
 			} else if (!r.isPrivate()) {
 				chatClient.newRoom(r);

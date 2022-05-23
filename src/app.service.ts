@@ -513,8 +513,8 @@ export class AppService {
 
   async setRoomAdmin(roomId: number, userId: number, action: boolean): Promise<boolean> {
     const req = (action)
-      ? "INSERT INTO room_admins (room_id, user_id) VALUES ($1, $2);"
-      : "DELETE FROM room_admins WHERE room_id = $1 AND user_id = $2;";
+      ? "INSERT INTO rooms_admins (room_id, user_id) VALUES ($1, $2);"
+      : "DELETE FROM rooms_admins WHERE room_id = $1 AND user_id = $2;";
 
     return this.execSql(req, roomId, userId);
   }
@@ -589,18 +589,11 @@ export class AppService {
   }
 
   socketConnected(id: number) {
-	 this.logger.debug(`[APPSERVICE] Socket ${id} connected.`);
     this.getClientState(id).socketCount += 1;
   }
 
   socketDisconnected(id: number) {
-	 this.logger.debug(`[APPSERVICE] Socket ${id} disconnected.`);
     let client: ClientState = this.getClientState(id);
-
-	 if (client === undefined) {
-		 this.logger.error(`socketDisconnected: no client for id ${id}`);
-		 return;
-	 }
 
     client.socketCount -= 1;
 
@@ -618,7 +611,7 @@ export class AppService {
       let result: {name: string, id: number, isPrivate: boolean}[] = [];
 
       for (let row of sqlResult.rows) {
-        result.push({name: row.name, id: row.id, isPrivate: row.description === "private"});
+        result.push({name: row.room_name, id: row.identifiant, isPrivate: row.description === "private"});
       }
 
       return result;
@@ -629,12 +622,18 @@ export class AppService {
   }
 
   async getRoomAdmins(id: number): Promise<number[]> {
-    const req = "SELECT user_id FROM room_admins WHERE room_id = $1;";
+    const req = "SELECT user_id FROM rooms_admins WHERE room_id = $1;";
 
     try {
       let sqlResult = await this.sqlConn.query(req, [id]);
 
-      return sqlResult.rows;
+      let res: number[] = [];
+
+      for (let i of sqlResult.rows) {
+        res.push(i.user_id);
+      }
+
+      return res;
     } catch (reason) {
       this.logger.debug(`getRoomAdmins: error while database querying: ${reason}`);
     }
@@ -647,7 +646,13 @@ export class AppService {
     try {
       let sqlResult = await this.sqlConn.query(req, [id]);
 
-      return sqlResult.rows;
+      let res: number[] = [];
+
+      for (let i of sqlResult.rows) {
+        res.push(i.user_id);
+      }
+
+      return res;
     } catch (reason) {
       this.logger.debug(`getRoomBanlist: error while database querying: ${reason}`);
     }
@@ -660,7 +665,13 @@ export class AppService {
     try {
       let sqlResult = await this.sqlConn.query(req, [id]);
 
-      return sqlResult.rows;
+      let res: number[] = [];
+
+      for (let i of sqlResult.rows) {
+        res.push(i.user_id);
+      }
+
+      return res;
     } catch (reason) {
       this.logger.debug(`getRoomMembers: error while database querying: ${reason}`);
     }
@@ -669,8 +680,9 @@ export class AppService {
 
   async addRoom(id: number, name: string, isPrivate: boolean, password: string): Promise<boolean> {
     const req = (password === undefined)
-      ? "INSERT INTO rooms (room_name, description, room_password, identifiant) VALUES ($1, $2, CRYPT($3, GEN_SALT('md5')), $4);"
-      : "INSERT INTO rooms (room_name, description, room_password, identifiant) VALUES ($1, $2, $3, $4);";
+    ? "INSERT INTO rooms (room_name, description, room_password, identifiant) VALUES ($1, $2, $3, $4);"
+    : "INSERT INTO rooms (room_name, description, room_password, identifiant) VALUES ($1, $2, CRYPT($3, GEN_SALT('md5')), $4);"
+    ;
 
     if (password === undefined) password = null;
 
