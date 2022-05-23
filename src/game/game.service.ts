@@ -2,21 +2,8 @@ import { Injectable, Logger } from '@nestjs/common';
 import { Socket } from 'socket.io'
 import { AppService, ClientState } from 'src/app.service';
 import { parse } from "cookie";
-import * as path from "path";
-// import { game } from "src/game/game.server"
-// import { shape } from "src/game/game.shape"
-// import { logic } from "src/game/game.logic"
-
-// import { EngineService } from "src/game/engine.service"
-// import { Job, JobId } from "bull"
-
-// import { Vector3 } from 'three';
-
-// import * as THREE from 'three';
 import { Vector3 } from 'three';
-// import { cli } from 'webpack';
 
-// import { Worker } from "worker_threads";
 
 export class Position { constructor(public posx : number, public posy : number, public posz : number) {}; }
 export class Players { constructor(public p1 : string, public p2 : string) {} }
@@ -245,7 +232,7 @@ export class GameSession {
 		}
 	}
 
-	public sendPlayerScore(socketId : Socket) {
+	public sendPlayerScore() {
 		this.player1.sendMessage('updateScore', this.scores);
 		this.player2.sendMessage('updateScore', this.scores);
 		this.spectateList.forEach(element => {
@@ -286,8 +273,6 @@ export function ExceptionGameSession (message : string) {
 export class GameService {
 	private logger : Logger = new Logger(GameService.name);
 
-	private worker: Worker;
-
 	private clientList : Map<string, Client> = new Map();
 	private clientIDList : Map<number, Client> = new Map();
 	private pendingList : Map<string, Client> = new Map();
@@ -295,11 +280,6 @@ export class GameService {
 	private inviteList: Map<number, GameSession> = new Map();
 
 	constructor() {}
-
-	/////////////////////////////////
-	// REMOVE IT WHEN OPERATIONNAL //
-	// private nbClient : number = 0;
-	/////////////////////////////////
 
 	// Took either a socket.id or ClientState.id
 	// Return Client class
@@ -585,7 +565,7 @@ export class GameService {
 			this.endGame(client, appService);
 		else if (this.gameList.has(clientData.getGameId) && clientData.isSpectate)
 			this.gameList.get(clientData.getGameId).removeSpectate(client.id);
-			
+
 		// Notify disconnection to the AppService checker
 		appService.socketDisconnected(clientData.getId);
 		// If he was in game, send message and disconnect him
@@ -698,7 +678,7 @@ export class GameService {
 			this.logger.log('[GAME] Player 2 scored');
 			gameSession.player2Scored();
 		}
-		gameSession.sendPlayerScore(client);
+		gameSession.sendPlayerScore();
 		var savedScore = gameSession.getScores;
 		this.logger.log(`Score : `, savedScore);
 		if (savedScore.score1 >= 11 || savedScore.score2 >= 11)

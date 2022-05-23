@@ -47,19 +47,19 @@ export class MatchmakingGateway implements OnGatewayConnection, OnGatewayDisconn
 	}
 
 	@SubscribeMessage('accept')
-	handleAccept(@ConnectedSocket() client: Socket, @MessageBody() payload : PendingClient) {
+	handleAccept(@ConnectedSocket() client: Socket) {
 		try { this.gameService.inviteAccepted(client); }
 		catch (e) { this.logger.error("handleAccept: " + e.name + " " + e.message); }
 	}
 
 	@SubscribeMessage('refuse')
-	handleRefuse(@ConnectedSocket() client: Socket, @MessageBody() payload : PendingClient) {
+	handleRefuse(@ConnectedSocket() client: Socket) {
 		try { this.gameService.inviteRefused(client); }
 		catch (e) { this.logger.error("handleRefuse: " + e.name + " " + e.message); }
 	}
 
 	@SubscribeMessage('cancel')
-	handleCancelMatch(@ConnectedSocket() client: Socket, @MessageBody() payload : PendingClient) {
+	handleCancelMatch(@ConnectedSocket() client: Socket) {
 		try { this.gameService.cancelSearchGame(client); }
 		catch (e) { this.logger.error("handleCancelMatch: " + e.name + " " + e.message); }
 	}
