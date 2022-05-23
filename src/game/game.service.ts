@@ -21,6 +21,7 @@ import { Vector3 } from 'three';
 export class Position { constructor(public posx : number, public posy : number, public posz : number) {}; }
 export class Players { constructor(public p1 : string, public p2 : string) {} }
 export class Scores { constructor(public score1 : number, public score2 : number) {} }
+export class Results { constructor(public win : boolean, public score1 : number, public score2 : number) {} }
 export class Emit { constructor(public givenBall : Position, public id : number, ) {} }
 
 export class PendingClient { constructor(public id : number, public map : number, public diff : number) { } }
@@ -104,6 +105,8 @@ export class GameSession {
 
 	public get getScores() : Scores { return this.scores; }
 	public set getScores(newScores : Scores) { this.scores = newScores; }
+
+	public getResults(isWinner : boolean) : Results { return new Results(isWinner, this.scores.score1, this.scores.score2); }
 
 	public get getPlayer1() : Client { return this.player1; }
 	public get getPlayer2() : Client { return this.player2; }
@@ -213,7 +216,7 @@ export class GameSession {
 			element.isSpectate = false;
 			element.getGameId = 0;
 			if (element.getSocket.connected){
-				element.sendMessage('disconnectInGame', this.scores);
+				element.sendMessage('disconnectSpectate', this.scores);
 				element.disconnect();
 			}
 		})
@@ -582,15 +585,9 @@ export class GameService {
 			this.endGame(client, appService);
 		else if (this.gameList.has(clientData.getGameId) && clientData.isSpectate)
 			this.gameList.get(clientData.getGameId).removeSpectate(client.id);
-		// Only true if the method is called elsewhere than in `handleDisconnect()`
-		// in `game.gateway.ts` file.
-		if (client.connected) {
-			appService.socketDisconnected(clientData.getId);
-			clientData.sendMessage('disconnectInGame', this.gameList.get(clientData.getGameId).getScores);
-			clientData.disconnect();
-		}
-		else
-			appService.socketDisconnected(clientData.getId);
+			
+		// Notify disconnection to the AppService checker
+		appService.socketDisconnected(clientData.getId);
 		// If he was in game, send message and disconnect him
 		this.logger.log(`[GAME] Client -${this.clientList.get(client.id).getId}- unregistered.`);
 		// Finish cleaning.
@@ -714,21 +711,24 @@ export class GameService {
 			return ;
 		var players = {p1 : getGame.getPlayer1.getId, p2 : getGame.getPlayer2.getId};
 
+		// If one of the players brutaly disconnect
 		if (getGame.getPlayer1.getSocket.disconnected) {
-			var newScore = new Scores(-1, getGame.getScores.score2);
-			getGame.getPlayer2.sendMessage('disconnectInGame', newScore);
+			getGame.getPlayer2.sendMessage('disconnectInGame', getGame.getResults(true));
+			// appService.gameEnded(players , getGame.getPlayer2.getId, getGame.getScores);
 		}
 		else if (getGame.getPlayer2.getSocket.disconnected) {
-			var newScore = new Scores(getGame.getScores.score1, -1);
-			getGame.getPlayer1.sendMessage('disconnectInGame', newScore);
+			getGame.getPlayer1.sendMessage('disconnectInGame', getGame.getResults(true));
+			// appService.gameEnded(players , getGame.getPlayer1.getId, getGame.getScores);
 		}
-
-		getGame.getPlayer1.sendMessage('disconnectInGame', getGame.getScores);
-		getGame.getPlayer2.sendMessage('disconnectInGame', getGame.getScores);
-		if (getGame.getScores.score1 < getGame.getScores.score2) {
+		// If the game ended properly
+		else if (getGame.getScores.score1 < getGame.getScores.score2) {
+			getGame.getPlayer1.sendMessage('disconnectInGame', getGame.getResults(false));
+			getGame.getPlayer2.sendMessage('disconnectInGame', getGame.getResults(true));
 			// appService.gameEnded(players , getGame.getPlayer2.getId, getGame.getScores);
 		}
 		else if (getGame.getScores.score1 > getGame.getScores.score2) {
+			getGame.getPlayer1.sendMessage('disconnectInGame', getGame.getResults(true));
+			getGame.getPlayer2.sendMessage('disconnectInGame', getGame.getResults(false));
 			// appService.gameEnded(players , getGame.getPlayer1.getId, getGame.getScores);
 		}
 
