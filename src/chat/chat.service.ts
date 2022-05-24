@@ -404,7 +404,7 @@ export class ChatService {
 
 		this.logger.debug(`registerConnection: user ${client.getId()} (socket: ${socket.id}) joined the chat!`);
 
-		this.sendInitialInformation(socket, chatClient);
+		// this.sendInitialInformation(socket, chatClient);
 
 		appService.socketConnected(client.getId());
 
