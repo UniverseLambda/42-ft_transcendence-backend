@@ -45,7 +45,8 @@ export class UserProfile {
     public rank: string = "N00b",
     public win: number = 0,
     public loose: number = 0,
-    public totpSecret: OAuth.HOTP = undefined,
+    public totpSecret: OAuth.TOTP = undefined,
+    public hotpCounter: number = 0,
   ) {}
 }
 
@@ -348,19 +349,19 @@ export class AppService {
       throw `prepare2FA: TOTP already activated for user ${sess.getId()} (${sess.profile.login})`;
     }
 
-    sess.profile.totpSecret = new OAuth.HOTP({
+    sess.profile.totpSecret = new OAuth.TOTP({
       label: "BrindiSquad 2FA",
       issuer: "BrindiSquad",
       algorithm: "SHA512",
       digits: 6,
-      counter: Math.floor(Math.random() * 1000),
+      period: 30,
       secret: new OAuth.Secret(generateKeySync("hmac", {length: 512}).export())
     })
 
     sess.totpInPreparation = true;
 
     this.logger.verbose(`prepare2FA: totpSecret ready to be enabled :)`);
-    this.logger.debug(`SECRET: ${sess.profile.totpSecret.toString()}`);
+    // this.logger.debug(`SECRET: ${sess.profile.totpSecret.toString()}`);
     return sess.profile.totpSecret.toString();
   }
 
@@ -399,11 +400,18 @@ export class AppService {
   }
 
   async check2FA(sess: ClientState, token: string): Promise<boolean> {
-    let result: number = sess.profile.totpSecret.validate({token: token, window: 10});
+    let result: number = sess.profile.totpSecret.validate({token: token});
 
-    this.logger.debug(`check2FA: TOKEN: ${token}, DELTA: ${result} (${sess.profile.totpSecret.generate()})`);
+    this.logger.debug(`check2FA: TOKEN: ${token}, DELTA: ${result}`);
 
-    return result != null && result <= TOTP_MAX_DELTA;
+    let valid = result != null && result <= TOTP_MAX_DELTA;
+
+    if (valid) {
+      sess.profile.hotpCounter += 1;
+      this.execSql("UPDATE users SET hotpcounter = $1 WHERE uid = $2;", [sess.getId(), sess.profile.hotpCounter]);
+    }
+
+    return valid;
   }
 
   deactivate2FA(sess: ClientState) {
@@ -734,9 +742,16 @@ export class AppService {
 
       let row = result.rows[0];
 
+      let hotpSecret = undefined;
+
+      if (row.totpsecret === null) {
+        hotpSecret = OAuth.URI.parse(result.rows[0]);
+        hotpSecret.counter = row.hotpcounter;
+      }
+
       return new UserProfile(
         row.login, row.displayName, row.profile_pic, row.level, row.rank, row.wins, row.losses,
-          (row.totpsecret === null) ? undefined: row.totpsecret
+        hotpSecret, row.hotpcounter
       );
     } catch (reason) {
       this.logger.debug(`getUserInfo: error while database querying: ${reason}`);
@@ -768,6 +783,12 @@ export class AppService {
 
     return this.execSql(req, prf.login, prf.displayName, prf.defaultAvatarUrl, id);
   }
+
+  // async setLogin(id: number, newLogin: string): Promise<boolean> {
+  //   const req = "UPDATE users SET login = $1 WHERE uid = $2;";
+
+  //   return this.execSql(req, newLogin, id);
+  // }
 
   async setPassword(roomId: number, newPassword: string): Promise<boolean> {
     const req =  newPassword === undefined
