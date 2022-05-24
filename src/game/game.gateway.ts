@@ -63,6 +63,8 @@ export class GameGateway implements OnGatewayConnection, OnGatewayDisconnect {
 
 	@SubscribeMessage('endGame')
 	handleEndGame(@ConnectedSocket() client: any) {
+		try { this.gameService.unregisterClient(client, this.appService); }
+		catch (e) { this.logger.error("endGame: " + e.name + " " + e.message); }
 		this.gameService.endGame(client, this.appService);
 	}
 

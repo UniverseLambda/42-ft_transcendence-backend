@@ -690,9 +690,21 @@ export class GameService {
 	}
 
 	endGame(client : Socket,  appService : AppService) {
-		var getGame = this.getGame(client.id);
-		if (getGame === undefined)
+		if (!this.clientList.has(client.id)) {
+			this.logger.error("endgame : client not registered.");
+			return;
+		}
+		var clientSession = this.clientList.get(client.id);
+		if (!this.clientIDList.has(clientSession.getId) || !clientSession.isAuthentified){
+			this.logger.error("endgame : client not registered or authentified.");
+			return;
+		}
+		if (!this.gameList.has(this.clientList.get(client.id).getGameId)) {
+			this.logger.log("endgame : Game not listed.");
 			return ;
+		}
+		var getGame = this.gameList.get(clientSession.getGameId);
+
 		var players = {p1 : getGame.getPlayer1.getId, p2 : getGame.getPlayer2.getId};
 
 		// If one of the players brutaly disconnect
