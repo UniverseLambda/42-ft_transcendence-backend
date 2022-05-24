@@ -468,7 +468,7 @@ export class AppService {
       friendList.push({
         id: fid,
         login: friendPrf.login,
-        level: friendPrf.xp,
+        level: this.calcLevel(friendPrf.xp),
         rank: friendPrf.rank,
         userStatus: UserStatus[status],
       });
@@ -556,7 +556,7 @@ export class AppService {
       for (let r of sqlRes.rows) {
         let scoreCurrent = (r.id_user1 === userId) ? r.score_user1 : r.score_user2;
         let scoreOther = (r.id_user1 === userId) ? r.score_user2 : r.score_user1;
-        let otherId = (r.id_user1 === userId) ? r.id_user1 : r.id_user2;
+        let otherId = (r.id_user1 === userId) ? r.id_user2 : r.id_user1;
 
         let otherPrf = await this.getUserInfo(otherId);
 
@@ -735,7 +735,7 @@ export class AppService {
       let row = result.rows[0];
 
       return new UserProfile(
-        row.login, row.displayName, row.profile_pic, row.level, row.rank, row.wins, row.loses,
+        row.login, row.displayName, row.profile_pic, row.level, row.rank, row.wins, row.losses,
           (row.totpsecret === null) ? undefined: row.totpsecret
       );
     } catch (reason) {
@@ -776,7 +776,11 @@ export class AppService {
   // }
 
   async setPassword(roomId: number, newPassword: string): Promise<boolean> {
-    const req = "UPDATE rooms SET room_password = CRYPT($1, GEN_SALT('md5')) WHERE identifiant = $2;";
+    const req =  newPassword === undefined
+      ? "UPDATE rooms SET room_password = CRYPT($1, GEN_SALT('md5')) WHERE identifiant = $2;"
+      : "UPDATE rooms SET room_password = $1 WHERE identifiant = $2;";
+
+    if (newPassword === undefined) newPassword = null;
 
     return this.execSql(req, newPassword, roomId);
   }
