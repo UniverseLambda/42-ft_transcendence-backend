@@ -1,0 +1,7 @@
+node_modules
+Dockerfile
+*.md
+.git*
+.vscode
+dist
+user_data
