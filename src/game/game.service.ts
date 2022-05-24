@@ -446,17 +446,14 @@ export class GameService {
 		if (game.getPlayer2.getId !== player.getId)
 			throw ExceptionGameSession("inviteRefused : this is not his invitation!");
 		this.logger.log(`[MATCHMAKING] Players ${player.getId} refused to play.`);
-
-		game.resetPlayersParameters();
-		game.getPlayer1.sendMessage('disconnectInMatchmaking', []);
-		game.getPlayer2.sendMessage('disconnectInMatchmaking', []);
-		game.getPlayer1.disconnect();
-		game.getPlayer2.disconnect();
-		this.inviteList.delete(game.getId);
+		
+		game.resetGame();
+		while (this.inviteList.has(game.getId))
+			this.inviteList.delete(game.getId);
 	}
 
 	searchGame(socket : Socket, playerInfo : PendingClient) {
-		var player : Client = this.clientCheck(socket, "inviteRefused");
+		var player : Client = this.clientCheck(socket, "searchGame : client not properly registered.");
 		// Additionnal check to see if the playerInfo received
 		// concerns this client.
 		if (player.getId !== playerInfo.id)
@@ -599,17 +596,20 @@ export class GameService {
 		if (!clientToSpectate.isInGame || !this.gameList.has(clientToSpectate.getGameId))
 			throw ExceptionGameSession(`searchToSpectate : player to spectate is not in game.`);
 
+		this.logger.log(`[MATCHMAKING] Spectate found for ${client.id} on game launched by ${id}.`);
+
 		var gameToSpectate = this.gameList.get(clientToSpectate.getGameId);
 		gameToSpectate.addSpectate(client.id, clientToSpectate);
 		spectator.sendMessage('found', []);
 	}
 
 	readyToSpectate(client: Socket, appService : AppService) {
-		var clientToSpectate = this.clientCheck(client, `readySpectate : spectator ${client.id} not properly identified.`)
-		if (!clientToSpectate.isSpectate)
+		var spectator = this.clientCheck(client, `readySpectate : spectator ${client.id} not properly identified.`)
+		if (!spectator.isSpectate)
 			return false;
-		appService.inGame(clientToSpectate.getGameId);
-		var gameToSpectate = this.gameList.get(clientToSpectate.getGameId);
+		appService.inGame(spectator.getGameId);
+		var gameToSpectate = this.gameList.get(spectator.getGameId);
+		this.logger.log(`[MATCHMAKING] Spectator ${client.id} ready to spectate game ${gameToSpectate.getId}.`);
 		gameToSpectate.launchSpectate(client.id);
 		return true;
 	}
@@ -687,9 +687,21 @@ export class GameService {
 	}
 
 	endGame(client : Socket,  appService : AppService) {
-		var getGame = this.getGame(client.id);
-		if (getGame === undefined)
+		if (!this.clientList.has(client.id)) {
+			this.logger.error("endgame : client not registered.");
+			return;
+		}
+		var clientSession = this.clientList.get(client.id);
+		if (!this.clientIDList.has(clientSession.getId) || !clientSession.isAuthentified){
+			this.logger.error("endgame : client not registered or authentified.");
+			return;
+		}
+		if (!this.gameList.has(this.clientList.get(client.id).getGameId)) {
+			this.logger.log("endgame : Game not listed.");
 			return ;
+		}
+		var getGame = this.gameList.get(clientSession.getGameId);
+
 		var players = {p1 : getGame.getPlayer1.getId, p2 : getGame.getPlayer2.getId};
 
 		// If one of the players brutaly disconnect
@@ -724,8 +736,10 @@ export class GameService {
 		appService.gameQuitted(getGame.getPlayer2.getId);
 		getGame.resetGame();
 		this.logger.log('[GAME] Game deleted.');
-		this.gameList.delete(getGame.getId);
-		if (this.inviteList.has(getGame.getId))
+		// Cleaning all game with the same ID
+		while (this.gameList.has(getGame.getId))
+			this.gameList.delete(getGame.getId);
+		while (this.inviteList.has(getGame.getId))
 			this.inviteList.delete(getGame.getId);
 	}
 }
