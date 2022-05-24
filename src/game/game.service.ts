@@ -71,7 +71,7 @@ export class GameSession {
 	private ballPosition : Vector3 = new Vector3(0,0,0);
 	private readyStatus : [p1 : boolean, p2 : boolean] = [false, false];
 	private id : number = 0;
-	private spectateList : Map<string, Client> = new Map();
+	private spectateList : Map<number, Client> = new Map();
 	private setStarted : boolean;
 
 	constructor(private player1 : Client, private player2 : Client) {
@@ -164,20 +164,19 @@ export class GameSession {
 		Logger.log(`[GAME] Set of game session ${this.id} started!`);
 	}
 
-	public addSpectate(socketId : string, client : Client) {
-		if (this.spectateList.has(socketId))
+	public addSpectate(client : Client) {
+		if (this.spectateList.has(client.getId))
 			throw ExceptionGameSession('addSpectate : Spectate already present.');
 		client.getMap = this.getPlayer1.getMap;
 		client.getDifficulty = this.getPlayer1.getDifficulty;
 		client.isSpectate = true;
 		client.getGameId = this.id;
-		this.spectateList.set(socketId, client);
+		this.spectateList.set(client.getId, client);
 	}
 
-	public launchSpectate(socketId : string) {
-		if (!this.spectateList.has(socketId))
-			throw ExceptionGameSession('launchSpectate : Spectate already present.');
-		var client = this.spectateList.get(socketId);
+	public launchSpectate(client : Client) {
+		if (!this.spectateList.has(client.getId))
+			throw ExceptionGameSession('launchSpectate : spectate not added to the list.');
 		client.sendMessage('launch', {
 			player:'spectate',
 			map:client.getMap,
@@ -185,16 +184,15 @@ export class GameSession {
 		});
 	}
 
-	public removeSpectate(socketId : string) {
-		if (this.spectateList.has(socketId)) {
-			var clientSession = this.spectateList.get(socketId);
+	public removeSpectate(clientSession : Client) {
+		if (this.spectateList.has(clientSession.getId)) {
 			clientSession.isSpectate = false;
 			clientSession.getGameId = 0;
 			if (clientSession.getSocket.connected){
 				clientSession.sendMessage('disconnectSpectate', this.scores);
 				clientSession.disconnect();
 			}
-			this.spectateList.delete(socketId);
+			this.spectateList.delete(clientSession.getId);
 		}
 	}
 
@@ -560,9 +558,9 @@ export class GameService {
 		}
 		// End the game or the spectate situation.
 		if (this.gameList.has(clientData.getGameId) && !clientData.isSpectate)
-		this.endGame(client, appService);
+			this.endGame(client, appService);
 		else if (this.gameList.has(clientData.getGameId) && clientData.isSpectate)
-		this.gameList.get(clientData.getGameId).removeSpectate(client.id);
+			this.gameList.get(clientData.getGameId).removeSpectate(clientData);
 
 		this.clientIDList.delete(clientData.getId);
 
@@ -601,18 +599,19 @@ export class GameService {
 		this.logger.log(`[MATCHMAKING] Spectate found for ${client.id} on game launched by ${id}.`);
 
 		var gameToSpectate = this.gameList.get(clientToSpectate.getGameId);
-		gameToSpectate.addSpectate(client.id, spectator);
+		gameToSpectate.addSpectate(spectator);
 		spectator.sendMessage('found', []);
 	}
 
 	readyToSpectate(client: Socket, appService : AppService) {
 		var spectator = this.clientCheck(client, `readySpectate : spectator ${client.id} not properly identified.`)
-		if (!spectator.isSpectate)
+		if (!spectator.isSpectate) {
 			return false;
+		}
 		appService.inGame(spectator.getGameId);
 		var gameToSpectate = this.gameList.get(spectator.getGameId);
 		this.logger.log(`[MATCHMAKING] Spectator ${client.id} ready to spectate game ${gameToSpectate.getId}.`);
-		gameToSpectate.launchSpectate(client.id);
+		gameToSpectate.launchSpectate(spectator);
 		return true;
 	}
 // TODO///////////////////////////
