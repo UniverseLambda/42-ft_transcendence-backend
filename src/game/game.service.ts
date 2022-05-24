@@ -446,17 +446,14 @@ export class GameService {
 		if (game.getPlayer2.getId !== player.getId)
 			throw ExceptionGameSession("inviteRefused : this is not his invitation!");
 		this.logger.log(`[MATCHMAKING] Players ${player.getId} refused to play.`);
-
-		game.resetPlayersParameters();
-		game.getPlayer1.sendMessage('disconnectInMatchmaking', []);
-		game.getPlayer2.sendMessage('disconnectInMatchmaking', []);
-		game.getPlayer1.disconnect();
-		game.getPlayer2.disconnect();
-		this.inviteList.delete(game.getId);
+		
+		game.resetGame();
+		while (this.inviteList.has(game.getId))
+			this.inviteList.delete(game.getId);
 	}
 
 	searchGame(socket : Socket, playerInfo : PendingClient) {
-		var player : Client = this.clientCheck(socket, "inviteRefused");
+		var player : Client = this.clientCheck(socket, "searchGame : client not properly registered.");
 		// Additionnal check to see if the playerInfo received
 		// concerns this client.
 		if (player.getId !== playerInfo.id)
