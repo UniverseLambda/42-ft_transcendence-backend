@@ -174,7 +174,11 @@ export class AppService {
 
       // If we have the data but this function is still called, then the guy is waiting for 2FA
       if (this.getClientState(response.data.id) !== undefined) {
-        return await this.newToken(new AuthState(AuthStatus.WaitingFor2FA, response.data.id));
+        if (this.getClientState(response.data.id).profile.totpSecret !== undefined) {
+          return await this.newToken(new AuthState(AuthStatus.WaitingFor2FA, response.data.id));
+        } else {
+          return await this.newToken(new AuthState(AuthStatus.Accepted, response.data.id));
+        }
       }
 
       let sqlResult: UserProfile = await this.getUserInfo(response.data.id);
@@ -200,7 +204,6 @@ export class AppService {
         }
 
         userProfile = new UserProfile(response.data.login, response.data.displayname, response.data.image_url);
-
         await this.registerUser(response.data.id, userProfile);
       }
 
@@ -766,11 +769,11 @@ export class AppService {
     return this.execSql(req, prf.login, prf.displayName, prf.defaultAvatarUrl, id);
   }
 
-  async setLogin(id: number, newLogin: string): Promise<boolean> {
-    const req = "UPDATE users SET login = $1 WHERE uid = $2;";
+  // async setLogin(id: number, newLogin: string): Promise<boolean> {
+  //   const req = "UPDATE users SET login = $1 WHERE uid = $2;";
 
-    return this.execSql(req, newLogin, id);
-  }
+  //   return this.execSql(req, newLogin, id);
+  // }
 
   async setPassword(roomId: number, newPassword: string): Promise<boolean> {
     const req = "UPDATE rooms SET room_password = CRYPT($1, GEN_SALT('md5')) WHERE identifiant = $2;";

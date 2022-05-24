@@ -172,7 +172,7 @@ export class ProfileController {
 	}
 
 	@Post(["match_history", "match_history/:id"])
-	async getMatchHistory(@Req() req: Request, @Param("id") id?: string) {
+	async getMatchHistory(@Req() req: Request, @Param("id") id?: any) {
 		let sess = await this.appService.getSessionData(req);
 
 		if (!sess) {
@@ -184,15 +184,23 @@ export class ProfileController {
 				sess = await this.appService.getSessionData(req);
 
 				if (!sess) {
+					this.logger.error(`getMatchHistory: failed revival (disc. 0)`);
 					return [];
 				}
 			} catch {
-				this.logger.error(`getMatchHistory: failed revival`);
+				this.logger.error(`getMatchHistory: failed revival (disc. 1)`);
 				return [];
 			}
 		}
 
-		return await this.appService.getHistoryList(sess.getId());
+		let idNum = Number.parseInt(id);
+
+		if (id !== undefined || Number.isSafeInteger(idNum) || idNum <= 0) {
+			this.logger.error(`getMatchHistory: wrong id value: "${id}"`);
+			return [];
+		}
+
+		return await this.appService.getHistoryList((id === undefined) ? sess.getId() : idNum);
 	}
 
 	@Post("get_user_info")
@@ -226,7 +234,7 @@ export class ProfileController {
 			login: user.login,
 			displayName: user.displayName,
 			imageUrl: this.appService.getAvatarUrl(id),
-			userStatus: (client === undefined) ? UserStatus.Offline : client.userStatus,
+			userStatus: (client === undefined || client.socketCount === 0) ? UserStatus.Offline : client.userStatus,
 			rank: user.rank,
 			level: this.appService.calcLevel(user.xp),
 			win: user.win,

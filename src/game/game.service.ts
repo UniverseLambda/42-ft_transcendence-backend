@@ -344,8 +344,7 @@ export class GameService {
 		var clientSession = this.clientList.get(socket.id);
 		if (!this.clientIDList.has(clientSession.getId) || !clientSession.isAuthentified) {
 			this.clientList.delete(clientSession.getSocket.id);
-			if (this.clientIDList.has(clientSession.getId))
-				this.clientIDList.delete(clientSession.getId);
+			this.clientIDList.delete(clientSession.getId);
 			throw ExceptionUserNotRegister("unregisterPending : not registered or not authentified.");
 		}
 
@@ -366,8 +365,10 @@ export class GameService {
 			this.pendingList.delete(socket.id);
 		// Erase him if he's not registered to a match
 		// Do not erase him if his going to play a match
-		if (clientSession.getGameId === 0)
+		if (clientSession.getGameId === 0) {
+			this.logger.log(`[MATCHMAKING] client -${socket.id}- has no game : data erased.`);
 			this.clientIDList.delete(clientSession.getId);
+		}
 		this.logger.log(`[MATCHMAKING] Client ${this.findClientSocket(socket.id).getId} unregistered.`);
 		// Clean his entry.
 		this.clientList.delete(socket.id);
@@ -395,10 +396,10 @@ export class GameService {
 
 		var newGame = new GameSession(player, opponent);
 		// If the game is already registered, cancel process and return an error.
-		if (this.inviteList.has(newGame.getId) || this.inviteList.has(opponent.getId + player.getId) ) {
+		if (this.inviteList.has(newGame.getId)) {
 			throw ExceptionGameSession(`inviteUser : game with ID ${newGame.getId} already stored.`)
 		}
-		if (this.gameList.has(newGame.getId) || this.gameList.has(opponent.getId + player.getId)) {
+		if (this.gameList.has(newGame.getId)) {
 			throw ExceptionGameSession(`inviteUser : game with ID ${newGame.getId} already launched.`)
 		}
 		//// Alternative to game found
@@ -427,9 +428,11 @@ export class GameService {
 		// The GameId of the opponent has already been set in `inviteUser()`.
 		game.getPlayer2.getMap = game.getPlayer1.getMap;
 		game.getPlayer2.getDifficulty = game.getPlayer1.getDifficulty;
+		game.getPlayer2.getGameId = game.getId;
 
 		this.logger.log(`[MATCHMAKING] Players ${game.getPlayer1.getId} | ${game.getPlayer2.getId} launch duel.`);
 		// Notify players that a game has been found
+		game.notifyPlayers();
 		game.getPlayer1.sendMessage('found', []);
 		game.getPlayer2.sendMessage('found', []);
 		this.gameList.set(game.getId, game);
@@ -446,10 +449,9 @@ export class GameService {
 		if (game.getPlayer2.getId !== player.getId)
 			throw ExceptionGameSession("inviteRefused : this is not his invitation!");
 		this.logger.log(`[MATCHMAKING] Players ${player.getId} refused to play.`);
-		
+
+		this.inviteList.delete(game.getId);
 		game.resetGame();
-		while (this.inviteList.has(game.getId))
-			this.inviteList.delete(game.getId);
 	}
 
 	searchGame(socket : Socket, playerInfo : PendingClient) {
@@ -556,13 +558,13 @@ export class GameService {
 				this.clientList.delete(client.id);
 			throw ExceptionUserNotRegister(`unregisterClient : not properly registered or authentify.`);
 		}
-		else
-			this.clientIDList.delete(clientData.getId);
 		// End the game or the spectate situation.
 		if (this.gameList.has(clientData.getGameId) && !clientData.isSpectate)
-			this.endGame(client, appService);
+		this.endGame(client, appService);
 		else if (this.gameList.has(clientData.getGameId) && clientData.isSpectate)
-			this.gameList.get(clientData.getGameId).removeSpectate(client.id);
+		this.gameList.get(clientData.getGameId).removeSpectate(client.id);
+
+		this.clientIDList.delete(clientData.getId);
 
 		// Notify disconnection to the AppService checker
 		appService.socketDisconnected(clientData.getId);
@@ -726,20 +728,21 @@ export class GameService {
 		}
 
 		this.logger.log(`[GAME] End of game reached : ${getGame.getPlayer1.getId}, ${getGame.getPlayer2.getId}`);
+		appService.gameQuitted(getGame.getPlayer1.getId);
+		appService.gameQuitted(getGame.getPlayer2.getId);
+		this.logger.log('[GAME] Game deleted.');
+
+		// Cleaning all game with the same ID
+		this.gameList.delete(getGame.getId);
+		this.inviteList.delete(getGame.getId);
+
+		getGame.resetGame();
+
 		if (getGame.getPlayer1.getSocket.connected) {
 			getGame.getPlayer1.disconnect();
 		}
 		if (getGame.getPlayer2.getSocket.connected) {
 			getGame.getPlayer2.disconnect();
 		}
-		appService.gameQuitted(getGame.getPlayer1.getId);
-		appService.gameQuitted(getGame.getPlayer2.getId);
-		getGame.resetGame();
-		this.logger.log('[GAME] Game deleted.');
-		// Cleaning all game with the same ID
-		while (this.gameList.has(getGame.getId))
-			this.gameList.delete(getGame.getId);
-		while (this.inviteList.has(getGame.getId))
-			this.inviteList.delete(getGame.getId);
 	}
 }
