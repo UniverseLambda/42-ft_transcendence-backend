@@ -184,7 +184,23 @@ export class AppService {
       if (sqlResult) {
         userProfile = sqlResult;
       } else {
+        let login: string = response.data.login;
+        let currLogin: string = login;
+        let currAdd: number = 0;
+        let available: boolean;
+
+        while (!(available = await this.isNameAvailable(currLogin)) && currAdd < 10000) {
+          currLogin = login + (currAdd);
+          currAdd += 1;
+        }
+
+        if (!available) {
+          this.logger.error(`receiveOAuthCode: no available login found (WTF)`);
+          return await this.newToken(new AuthState(AuthStatus.Refused));
+        }
+
         userProfile = new UserProfile(response.data.login, response.data.displayname, response.data.image_url);
+
         await this.registerUser(response.data.id, userProfile);
       }
 
@@ -479,11 +495,13 @@ export class AppService {
 
   async validateRoomPassword(roomId: number, password?: string): Promise<boolean> {
     const req = (password === undefined || password === null || password.length === 0)
-    ? "SELECT * FROM rooms WHERE identifiant = $1 AND room_password = (CRYPT($2, room_password));"
-    : "SELECT * FROM rooms WHERE identifiant = $1 AND room_password = null;"
+    ? "SELECT * FROM rooms WHERE identifiant = $1 AND room_password = $2;"
+    : "SELECT * FROM rooms WHERE identifiant = $1 AND room_password = (CRYPT($2, room_password));"
     ;
 
     try {
+      if (password === undefined || password.length === 0) password = null;
+
       return (await this.sqlConn.query(req, [roomId, password])).rowCount !== 0;
     } catch (reason) {
       this.logger.error(`validateRoomPassword: querying error: ${reason}`);
@@ -608,16 +626,16 @@ export class AppService {
     }
   }
 
-  async retrieveRoomList(): Promise<{name: string, id: number, isPrivate: boolean}[]> {
+  async retrieveRoomList(): Promise<{name: string, id: number, isPrivate: boolean, owner: number}[]> {
     const req = "SELECT * FROM rooms";
 
     try {
       let sqlResult = await this.sqlConn.query(req);
 
-      let result: {name: string, id: number, isPrivate: boolean}[] = [];
+      let result: {name: string, id: number, isPrivate: boolean, owner: number}[] = [];
 
       for (let row of sqlResult.rows) {
-        result.push({name: row.room_name, id: row.identifiant, isPrivate: row.description === "private"});
+        result.push({name: row.room_name, id: row.identifiant, isPrivate: row.description === "private", owner: row.owner_id});
       }
 
       return result;
@@ -684,15 +702,15 @@ export class AppService {
     return [];
   }
 
-  async addRoom(id: number, name: string, isPrivate: boolean, password: string): Promise<boolean> {
+  async addRoom(id: number, name: string, isPrivate: boolean, password: string, ownerId: number): Promise<boolean> {
     const req = (password === undefined)
-    ? "INSERT INTO rooms (room_name, description, room_password, identifiant) VALUES ($1, $2, $3, $4);"
-    : "INSERT INTO rooms (room_name, description, room_password, identifiant) VALUES ($1, $2, CRYPT($3, GEN_SALT('md5')), $4);"
+    ? "INSERT INTO rooms (room_name, description, room_password, identifiant, owner_id) VALUES ($1, $2, $3, $4, $5);"
+    : "INSERT INTO rooms (room_name, description, room_password, identifiant, owner_id) VALUES ($1, $2, CRYPT($3, GEN_SALT('md5')), $4, $5);"
     ;
 
     if (password === undefined) password = null;
 
-    return this.execSql(req, name, (isPrivate) ? "private" : "public", password, id);
+    return this.execSql(req, name, (isPrivate) ? "private" : "public", password, id, ownerId);
   }
 
   async setNewLogin(client: ClientState, newLogin: string): Promise<boolean> {
@@ -778,6 +796,18 @@ export class AppService {
     }
 
     return this.execSql(reqProfiles, userId, info.win, info.loose, info.xp);
+  }
+
+  async isNameAvailable(name: string): Promise<boolean> {
+    const req = "SELECT * FROM users WHERE login = $1"
+
+    try {
+      let sqlResult = await this.sqlConn.query(req, [name]);
+
+      return sqlResult.rowCount === 0;
+    } catch (reason) {
+      this.logger.debug(`getUserInfo: error while database querying: ${reason}`);
+    }
   }
 
   async execSql(req: string, ...data: any[]): Promise<boolean> {

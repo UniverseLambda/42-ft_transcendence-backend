@@ -29,9 +29,19 @@ export class ProfileController {
 			}
 		}
 
+		if (!await this.appService.isNameAvailable(newLogin)) {
+			this.logger.warn(`setLogin: name "${newLogin}" already in use`);
+			return {
+				success: false,
+				reason: "Name already in use",
+			}
+		}
+
 		let oldLogin = data.profile.login;
 
 		data.profile.login = newLogin;
+
+
 		await this.appService.setNewLogin(data, newLogin);
 
 		this.logger.verbose(`Login changed from ${oldLogin} to ${data.profile.login} for user ${data.getId()}`);

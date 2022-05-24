@@ -6,6 +6,9 @@ SELECT * FROM users WHERE uid = '$uid';
 -- FETCH USER INFORMATION
 SELECT * FROM users WHERE uid = '$uid';
 
+-- CHECK IF A USERNAME EXISTS
+SELECT * FROM users WHERE name = '$name'
+
 -- ADD A USER INTO DATABASE
 INSERT INTO users (login, nickname, profile_pic, totpsecret, uid)
 VALUES ('$login', '$nickname', '$profile_pic', '$totpsecret', '$uid');
