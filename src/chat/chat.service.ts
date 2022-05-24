@@ -210,6 +210,7 @@ export class ChatRoom implements MessageReceipient {
 			user.client.roomLeaved(this);
 		}
 
+		this.members.delete(id);
 		this.connected.delete(id);
 		this.adminList.delete(id);
 
@@ -626,7 +627,7 @@ export class ChatService {
 		return true;
 	}
 
-	joinRoom(socket: Socket, payload: any) {
+	async joinRoom(socket: Socket, payload: any) {
 		let client: ChatClient = this.checkRegistration(socket, "joinRoomError");
 		let room: ChatRoom;
 
@@ -650,7 +651,17 @@ export class ChatService {
 			return;
 		}
 
-		if (!this.appService.validateRoomPassword(room.getId(), payload.password)) {
+		if (!(await this.appService.validateRoomPassword(room.getId(), payload.password))) {
+			if (payload.password === undefined) {
+
+				if (room.isPrivate() && payload.toFind) {
+					client.newRoom(room);
+				}
+
+				socket.emit("joinRoomError", makeError(ChatResult.PasswordRequired));
+				return;
+			}
+
 			this.logger.error(`joinRoom: wrong password ${payload.roomId}`);
 			socket.emit("joinRoomError", makeError(ChatResult.WrongPassword));
 			return;

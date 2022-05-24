@@ -478,7 +478,10 @@ export class AppService {
   }
 
   async validateRoomPassword(roomId: number, password?: string): Promise<boolean> {
-    const req = "SELECT * FROM rooms WHERE identifiant = $1 AND room_password = (CRYPT($2, room_password));";
+    const req = (password === undefined || password === null || password.length === 0)
+    ? "SELECT * FROM rooms WHERE identifiant = $1 AND room_password = (CRYPT($2, room_password));"
+    : "SELECT * FROM rooms WHERE identifiant = $1 AND room_password = null;"
+    ;
 
     try {
       return (await this.sqlConn.query(req, [roomId, password])).rowCount !== 0;
@@ -794,11 +797,16 @@ export class AppService {
       return false;
     }
 
-    this.logger.debug(`CCCCCCCCCCCC GAMEENDED CALLED id0: ${ids.p1}, id1: ${ids.p2}, score0: ${scores.score1}, score1: ${scores.score2}`);
+    let id0  = Math.min(ids.p1, ids.p2);
+    let id1  = Math.max(ids.p1, ids.p2);
+    let score0 = (ids.p1 < ids.p2) ? scores.score1 : scores.score2;
+    let score1 = (ids.p1 > ids.p2) ? scores.score1 : scores.score2;
+
+    this.logger.debug(`CCCCCCCCCCCC GAMEENDED CALLED id0: ${id0}, id1: ${id1}, score0: ${score0}, score1: ${score1}`);
 
     const req = "INSERT INTO matches_history (id_user1, score_user1, id_user2, score_user2, winner) VALUES ($1, $2, $3, $4, $5);";
 
-    return await this.execSql(req, ids.p1, scores.score1, ids.p2, scores.score2, winner);
+    return await this.execSql(req, id0, score0, id1, score1, winner);
   }
 
   calcLevel(xp: number): number {
