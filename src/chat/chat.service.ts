@@ -520,7 +520,7 @@ export class ChatService {
 		let timedout = false;
 
 		do {
-			roomId = -(Date.now() - 1653264000000);
+			roomId = -(Date.now() - 1653382357000);
 		} while (this.rooms.has(roomId) && !(timedout = (Date.now() - startTime) >= (2 /* s */ * 1000 /* ms */)));
 
 		if (timedout) {
@@ -537,7 +537,6 @@ export class ChatService {
 				if (c.getId() === client.getId()) continue;
 
 				c.newRoom(room);
-				// c.socket.emit("newRoom", {roomId: roomId, name: name});
 			}
 		}
 

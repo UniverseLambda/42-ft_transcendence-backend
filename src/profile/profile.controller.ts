@@ -224,8 +224,8 @@ export class ProfileController {
 			ratio: (user.loose === 0) ? (user.win) : (user.win / user.loose),
 		}
 
-		if (sess.getId() && client.getId() === sess.getId()) {
-			data.requires2FA = (client.profile.totpSecret !== undefined || client.profile.totpSecret !== null);
+		if (client && client.getId() === sess.getId()) {
+			data.requires2FA = (client.profile.totpSecret !== undefined && client.profile.totpSecret !== null);
 		}
 
 		return res.json(data).end();

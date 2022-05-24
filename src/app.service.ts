@@ -172,14 +172,14 @@ export class AppService {
       let response = await axios.get(`https://api.intra.42.fr/v2/me?access_token=${token_result.data.access_token}`);
       this.logger.verbose(`retrieveUserData: got status ${response.status} from api.intra.42.fr`);
 
-      // If they are already connected, we don't do anything
+      // If we have the data but this function is still called, then the guy is waiting for 2FA
       if (this.getClientState(response.data.id) !== undefined) {
-        return await this.newToken(new AuthState(AuthStatus.Accepted, response.data.id));
+        return await this.newToken(new AuthState(AuthStatus.WaitingFor2FA, response.data.id));
       }
 
       let sqlResult: UserProfile = await this.getUserInfo(response.data.id);
-
       let userProfile: UserProfile;
+
 
       if (sqlResult) {
         userProfile = sqlResult;
@@ -340,7 +340,8 @@ export class AppService {
 
     sess.totpInPreparation = true;
 
-    this.logger.debug(`SECRET: ${sess.profile.totpSecret.toString()}`);
+    this.logger.verbose(`prepare2FA: totpSecret ready to be enabled :)`);
+    // this.logger.debug(`SECRET: ${sess.profile.totpSecret.toString()}`);
     return sess.profile.totpSecret.toString();
   }
 
@@ -359,6 +360,8 @@ export class AppService {
       this.execSql("UPDATE users SET totpsecret = $1 WHERE uid = $2;", sess.profile.totpSecret, sess.getId());
       sess.totpInPreparation = false;
       return true;
+    } else {
+      this.logger.verbose(`validate2FA: wrong response value`);
     }
 
     return false;
@@ -708,7 +711,8 @@ export class AppService {
       let row = result.rows[0];
 
       return new UserProfile(
-        row.login, row.displayName, row.profile_pic, row.level, row.rank, row.wins, row.loses
+        row.login, row.displayName, row.profile_pic, row.level, row.rank, row.wins, row.loses,
+          (row.totpsecret === null) ? undefined: row.totpsecret
       );
     } catch (reason) {
       this.logger.debug(`getUserInfo: error while database querying: ${reason}`);
@@ -789,6 +793,8 @@ export class AppService {
     || !await this.updateStats(ids.p2, ids.p2 === winner)) {
       return false;
     }
+
+    this.logger.debug(`CCCCCCCCCCCC GAMEENDED CALLED id0: ${ids.p1}, id1: ${ids.p2}, score0: ${scores.score1}, score1: ${scores.score2}`);
 
     const req = "INSERT INTO matches_history (id_user1, score_user1, id_user2, score_user2, winner) VALUES ($1, $2, $3, $4, $5);";
 

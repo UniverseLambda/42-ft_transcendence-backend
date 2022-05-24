@@ -1,6 +1,6 @@
 import { Body, Controller, Get, Logger, Post, Query, Req, Res } from '@nestjs/common';
 import { AppService, AuthState, AuthStatus, ClientState } from '../app.service';
-import e, { Request, Response } from 'express';
+import { Request, Response } from 'express';
 import * as util from "../util";
 
 @Controller('login')
@@ -34,8 +34,23 @@ export class LoginController {
 	}
 
 	@Get('oauth')
-	async handle42OAuth(@Res({ passthrough: true }) response: Response, @Query('code') code?: string): Promise<any> {
+	async handle42OAuth(@Req() request: Request, @Res({ passthrough: true }) response: Response, @Query('code') code?: string): Promise<any> {
 		let resultingCookie;
+
+		try {
+			let cookie = request.cookies[this.appService.getSessionCookieName()];
+			let sess: AuthState = undefined;
+
+			if (cookie) {
+				sess = await this.appService.getTokenData(cookie);
+			}
+
+			if (sess && sess.authStatus && sess.authStatus === AuthStatus.Accepted) {
+				this.appService.reviveUser(sess.id);
+
+				return "ZARMA";
+			}
+		} catch {}
 
 		if (code) {
 			resultingCookie = await this.appService.receiveOAuthCode(code);
@@ -51,10 +66,10 @@ export class LoginController {
 		try {
 			let token: string = request.cookies[this.appService.getSessionCookieName()];
 
-			
+
 			let authStatus = await this.appService.isAuth(token);
 			let data: any = { authStatus: AuthStatus[authStatus] };
-			
+
 			if (authStatus === AuthStatus.Accepted) {
 				let info: ClientState = await this.appService.getSessionDataToken(token);
 
@@ -63,7 +78,7 @@ export class LoginController {
 				data.displayName = info.profile.displayName;
 				data.imageUrl = this.appService.getAvatarUrl(info.getId());
 				data.userStatus = info.userStatus;
-				data.requires2FA = (info.profile.totpSecret !== undefined || info.profile.totpSecret !== null);
+				data.requires2FA = (info.profile.totpSecret !== undefined && info.profile.totpSecret !== null);
 				data.level = this.appService.calcLevel(info.profile.xp);
 				data.win = info.profile.win;
 				data.loose = info.profile.loose;
