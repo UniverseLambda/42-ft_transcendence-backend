@@ -189,7 +189,7 @@ export class GameSession {
 			clientSession.isSpectate = false;
 			clientSession.getGameId = 0;
 			if (clientSession.getSocket.connected){
-				clientSession.sendMessage('disconnectSpectate', this.scores);
+				clientSession.sendMessage('disconnectInGame', this.getResults(false));
 				clientSession.disconnect();
 			}
 			this.spectateList.delete(clientSession.getId);
@@ -201,7 +201,7 @@ export class GameSession {
 			element.isSpectate = false;
 			element.getGameId = 0;
 			if (element.getSocket.connected){
-				element.sendMessage('disconnectSpectate', this.scores);
+				element.sendMessage('disconnectInGame', this.getResults(false));
 				element.disconnect();
 			}
 		})
