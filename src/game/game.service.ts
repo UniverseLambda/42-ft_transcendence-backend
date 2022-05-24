@@ -394,11 +394,12 @@ export class GameService {
 		this.logger.log(`[MATCHMAKING] Client -${socket.id}- invited someone...`);
 
 		var newGame = new GameSession(player, opponent);
-		var newGameTryError = new GameSession(opponent, player);
 		// If the game is already registered, cancel process and return an error.
-		if (this.inviteList.has(newGame.getId) || this.inviteList.has(newGameTryError.getId)
-			|| this.gameList.has(newGame.getId) || this.gameList.has(newGameTryError.getId)) {
+		if (this.inviteList.has(newGame.getId) || this.inviteList.has(opponent.getId + player.getId) ) {
 			throw ExceptionGameSession(`inviteUser : game with ID ${newGame.getId} already stored.`)
+		}
+		if (this.gameList.has(newGame.getId) || this.gameList.has(opponent.getId + player.getId)) {
+			throw ExceptionGameSession(`inviteUser : game with ID ${newGame.getId} already launched.`)
 		}
 		//// Alternative to game found
 		// Define player1 informations
@@ -724,5 +725,7 @@ export class GameService {
 		getGame.resetGame();
 		this.logger.log('[GAME] Game deleted.');
 		this.gameList.delete(getGame.getId);
+		if (this.inviteList.has(getGame.getId))
+			this.inviteList.delete(getGame.getId);
 	}
 }
