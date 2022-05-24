@@ -601,7 +601,7 @@ export class GameService {
 		this.logger.log(`[MATCHMAKING] Spectate found for ${client.id} on game launched by ${id}.`);
 
 		var gameToSpectate = this.gameList.get(clientToSpectate.getGameId);
-		gameToSpectate.addSpectate(client.id, clientToSpectate);
+		gameToSpectate.addSpectate(client.id, spectator);
 		spectator.sendMessage('found', []);
 	}
 
