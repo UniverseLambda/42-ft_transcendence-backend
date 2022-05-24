@@ -195,7 +195,7 @@ export class ProfileController {
 
 		let idNum = Number.parseInt(id);
 
-		if (id !== undefined || !Number.isSafeInteger(idNum) || idNum <= 0) {
+		if (id !== undefined && (!Number.isSafeInteger(idNum) || idNum <= 0)) {
 			this.logger.error(`getMatchHistory: wrong id value: "${id}"`);
 			return [];
 		}
