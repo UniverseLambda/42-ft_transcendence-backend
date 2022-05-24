@@ -599,17 +599,20 @@ export class GameService {
 		if (!clientToSpectate.isInGame || !this.gameList.has(clientToSpectate.getGameId))
 			throw ExceptionGameSession(`searchToSpectate : player to spectate is not in game.`);
 
+		this.logger.log(`[MATCHMAKING] Spectate found for ${client.id} on game launched by ${id}.`);
+
 		var gameToSpectate = this.gameList.get(clientToSpectate.getGameId);
 		gameToSpectate.addSpectate(client.id, clientToSpectate);
 		spectator.sendMessage('found', []);
 	}
 
 	readyToSpectate(client: Socket, appService : AppService) {
-		var clientToSpectate = this.clientCheck(client, `readySpectate : spectator ${client.id} not properly identified.`)
-		if (!clientToSpectate.isSpectate)
+		var spectator = this.clientCheck(client, `readySpectate : spectator ${client.id} not properly identified.`)
+		if (!spectator.isSpectate)
 			return false;
-		appService.inGame(clientToSpectate.getGameId);
-		var gameToSpectate = this.gameList.get(clientToSpectate.getGameId);
+		appService.inGame(spectator.getGameId);
+		var gameToSpectate = this.gameList.get(spectator.getGameId);
+		this.logger.log(`[MATCHMAKING] Spectator ${client.id} ready to spectate game ${gameToSpectate.getId}.`);
 		gameToSpectate.launchSpectate(client.id);
 		return true;
 	}
