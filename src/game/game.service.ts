@@ -724,8 +724,10 @@ export class GameService {
 		appService.gameQuitted(getGame.getPlayer2.getId);
 		getGame.resetGame();
 		this.logger.log('[GAME] Game deleted.');
-		this.gameList.delete(getGame.getId);
-		if (this.inviteList.has(getGame.getId))
+		// Cleaning all game with the same ID
+		while (this.gameList.has(getGame.getId))
+			this.gameList.delete(getGame.getId);
+		while (this.inviteList.has(getGame.getId))
 			this.inviteList.delete(getGame.getId);
 	}
 }
